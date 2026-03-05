@@ -38,6 +38,26 @@ canvas {
   outline: none;
 }
 
+/* --- UI Container --- */
+#ui-container {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  /* Let clicks pass through by default */
+}
+
+/* Re-enable pointer events for specific UI elements */
+#search-container,
+#sources-btn,
+#volume-control,
+#sources-panel {
+  pointer-events: auto;
+}
+
+/* --- Tooltip --- */
 #tooltip {
   position: absolute;
   top: 0;
@@ -58,9 +78,11 @@ canvas {
 
 #tooltip.hidden {
   opacity: 0;
+  display: none;
 }
 
-#search-panel {
+/* --- Search --- */
+#search-container {
   position: absolute;
   top: 20px;
   right: 20px;
@@ -129,6 +151,101 @@ canvas {
   border-radius: 3px;
 }
 
+/* --- Sources Button --- */
+.ui-button {
+  background: rgba(7, 11, 25, 0.85);
+  border: 1px solid #4488ff;
+  color: #fff;
+  font-size: 14px;
+  padding: 8px 16px;
+  border-radius: 8px;
+  cursor: pointer;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5), 0 0 10px rgba(68, 136, 255, 0.2);
+  backdrop-filter: blur(5px);
+  transition: all 0.2s ease;
+}
+
+.ui-button:hover {
+  background: rgba(68, 136, 255, 0.2);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5), 0 0 15px rgba(68, 136, 255, 0.4);
+}
+
+#sources-btn {
+  position: absolute;
+  top: 20px;
+  left: 20px;
+  z-index: 20;
+}
+
+/* --- Sources Panel --- */
+#sources-panel {
+  position: absolute;
+  top: 70px;
+  left: 20px;
+  width: 250px;
+  max-height: 400px;
+  background: rgba(7, 11, 25, 0.9);
+  border: 1px solid rgba(68, 136, 255, 0.4);
+  border-radius: 8px;
+  padding: 15px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.6);
+  backdrop-filter: blur(10px);
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  transition: opacity 0.3s ease, transform 0.3s ease;
+}
+
+#sources-panel.hidden {
+  opacity: 0;
+  transform: translateY(-10px);
+  pointer-events: none;
+}
+
+#sources-panel h3 {
+  margin: 0 0 10px 0;
+  color: #4488ff;
+  font-size: 16px;
+  border-bottom: 1px solid rgba(68, 136, 255, 0.2);
+  padding-bottom: 8px;
+}
+
+#sources-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  overflow-y: auto;
+  flex-grow: 1;
+}
+
+#sources-list li {
+  padding: 8px 10px;
+  color: #eee;
+  cursor: pointer;
+  font-size: 14px;
+  border-radius: 4px;
+  transition: background 0.2s;
+}
+
+#sources-list li:hover {
+  background: rgba(68, 136, 255, 0.2);
+  color: #00e5ff;
+}
+
+#sources-list::-webkit-scrollbar {
+  width: 4px;
+}
+
+#sources-list::-webkit-scrollbar-track {
+  background: rgba(0, 0, 0, 0.2);
+}
+
+#sources-list::-webkit-scrollbar-thumb {
+  background: rgba(68, 136, 255, 0.5);
+  border-radius: 2px;
+}
+
+/* --- Volume Control --- */
 #volume-control {
   position: absolute;
   bottom: 20px;
@@ -200,7 +317,7 @@ input[type=range]::-webkit-slider-runnable-track {
   border-radius: 1px;
 }
 
-/* Landing Page Styles */
+/* --- Landing Page --- */
 #landing-page {
   position: absolute;
   top: 0;
@@ -218,6 +335,329 @@ input[type=range]::-webkit-slider-runnable-track {
 #landing-page.hidden {
   opacity: 0;
   pointer-events: none;
+}
+
+/* --- Tutorial Overlay --- */
+#tutorial-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  background-color: #000;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 110;
+  transition: opacity 1.5s ease-out;
+}
+
+#tutorial-overlay.hidden {
+  opacity: 0;
+  pointer-events: none;
+}
+
+#tutorial-overlay.fade-out {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.tutorial-content {
+  text-align: center;
+  color: #fff;
+  font-family: 'Helvetica Neue', sans-serif;
+  max-width: 600px;
+  animation: tutorialFadeIn 0.8s ease-out;
+}
+
+.tutorial-content h2 {
+  font-size: 1.6rem;
+  font-weight: 300;
+  text-transform: uppercase;
+  letter-spacing: 4px;
+  color: #88aadd;
+  margin-bottom: 40px;
+}
+
+.tutorial-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 30px;
+  margin-bottom: 40px;
+}
+
+.tutorial-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  opacity: 0;
+  animation: tutorialItemIn 0.6s ease-out forwards;
+}
+
+.tutorial-item:nth-child(1) {
+  animation-delay: 0.3s;
+}
+
+.tutorial-item:nth-child(2) {
+  animation-delay: 0.5s;
+}
+
+.tutorial-item:nth-child(3) {
+  animation-delay: 0.7s;
+}
+
+.tutorial-item:nth-child(4) {
+  animation-delay: 0.9s;
+}
+
+.tutorial-icon {
+  width: 64px;
+  height: 64px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 8px;
+}
+
+.tutorial-icon svg {
+  overflow: visible;
+}
+
+/* --- Orbit animation: dot circles around center --- */
+.anim-orbit .orbit-dot {
+  transform-origin: 24px 24px;
+  animation: orbitSpin 2.5s linear infinite;
+}
+
+@keyframes orbitSpin {
+  from {
+    transform: rotate(0deg) translateX(12px) rotate(0deg);
+  }
+
+  to {
+    transform: rotate(360deg) translateX(12px) rotate(-360deg);
+  }
+}
+
+/* --- Zoom animation: lens pulses in/out --- */
+.anim-zoom .zoom-lens {
+  transform-origin: 22px 22px;
+  animation: zoomPulse 2s ease-in-out infinite;
+}
+
+@keyframes zoomPulse {
+
+  0%,
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+
+  50% {
+    transform: scale(1.25);
+    opacity: 0.7;
+  }
+}
+
+/* --- Tap animation: cursor taps down with expanding ring --- */
+.anim-tap .tap-cursor {
+  animation: tapBounce 1.5s ease-in-out infinite;
+}
+
+.anim-tap .tap-ring {
+  animation: tapRing 1.5s ease-out infinite;
+}
+
+@keyframes tapBounce {
+
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+
+  20% {
+    transform: translateY(4px);
+  }
+
+  30% {
+    transform: translateY(0);
+  }
+
+  50% {
+    transform: translateY(4px);
+  }
+
+  60% {
+    transform: translateY(0);
+  }
+}
+
+@keyframes tapRing {
+
+  0%,
+  15% {
+    opacity: 0;
+    transform: scale(0.5);
+  }
+
+  25% {
+    opacity: 0.8;
+    transform: scale(1);
+  }
+
+  45% {
+    opacity: 0;
+    transform: scale(1.8);
+  }
+
+  50%,
+  65% {
+    opacity: 0;
+    transform: scale(0.5);
+  }
+
+  75% {
+    opacity: 0.8;
+    transform: scale(1);
+  }
+
+  95% {
+    opacity: 0;
+    transform: scale(1.8);
+  }
+
+  100% {
+    opacity: 0;
+  }
+}
+
+/* --- Key press animation --- */
+.anim-key .key-cap {
+  animation: keyPress 2s ease-in-out infinite;
+}
+
+.anim-key text {
+  animation: keyPress 2s ease-in-out infinite;
+}
+
+@keyframes keyPress {
+
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+
+  40% {
+    transform: translateY(3px);
+  }
+
+  55% {
+    transform: translateY(0);
+  }
+}
+
+/* --- Tutorial background particles --- */
+.tutorial-bg-particles {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: radial-gradient(ellipse at center, rgba(68, 136, 255, 0.03) 0%, transparent 70%);
+  overflow: hidden;
+}
+
+.tutorial-bg-particles::before,
+.tutorial-bg-particles::after {
+  content: '';
+  position: absolute;
+  width: 2px;
+  height: 2px;
+  border-radius: 50%;
+  background: #4488ff;
+  box-shadow:
+    120px 80px 0 0 rgba(68, 136, 255, 0.3),
+    250px 150px 0 0 rgba(68, 136, 255, 0.2),
+    400px 60px 0 0 rgba(68, 136, 255, 0.4),
+    600px 200px 0 0 rgba(68, 136, 255, 0.15),
+    100px 300px 0 0 rgba(68, 136, 255, 0.25),
+    500px 350px 0 0 rgba(68, 136, 255, 0.3),
+    700px 100px 0 0 rgba(68, 136, 255, 0.2),
+    300px 400px 0 0 rgba(68, 136, 255, 0.35),
+    800px 300px 0 0 rgba(68, 136, 255, 0.15),
+    150px 200px 0 0 rgba(68, 136, 255, 0.2),
+    650px 350px 0 0 rgba(68, 136, 255, 0.25),
+    450px 250px 0 0 rgba(68, 136, 255, 0.3);
+  animation: floatParticles 8s linear infinite;
+}
+
+.tutorial-bg-particles::after {
+  animation-delay: -4s;
+  opacity: 0.5;
+}
+
+@keyframes floatParticles {
+  from {
+    transform: translateY(0) translateX(0);
+    opacity: 0.4;
+  }
+
+  50% {
+    opacity: 0.7;
+  }
+
+  to {
+    transform: translateY(-30px) translateX(15px);
+    opacity: 0.4;
+  }
+}
+
+.tutorial-label {
+  font-size: 0.95rem;
+  font-weight: 500;
+  letter-spacing: 1px;
+  color: #fff;
+}
+
+.tutorial-desc {
+  font-size: 0.8rem;
+  font-weight: 300;
+  color: #667;
+  letter-spacing: 0.5px;
+}
+
+.tutorial-hint {
+  font-size: 0.85rem;
+  color: #4488ff;
+  font-weight: 300;
+  letter-spacing: 1px;
+  opacity: 0;
+  animation: tutorialItemIn 0.6s ease-out 1.2s forwards;
+}
+
+@keyframes tutorialFadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(-10px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes tutorialItemIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 .landing-content {
@@ -257,4 +697,66 @@ input[type=range]::-webkit-slider-runnable-track {
 #enter-btn:hover {
   background: #fff;
   color: #000;
+}
+
+/* --- 3D Label Overlays --- */
+#labels-container {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  z-index: 5;
+}
+
+.node-label {
+  position: absolute;
+  color: rgba(200, 230, 255, 0.75);
+  font-size: 11px;
+  font-weight: 300;
+  letter-spacing: 1px;
+  text-shadow: 0px 0px 12px rgba(68, 136, 255, 0.3), 0px 1px 2px rgba(0, 0, 0, 0.8);
+  background: none;
+  border: none;
+  padding: 0;
+  transform: translate(-50%, -50%);
+  opacity: 0;
+  transition: opacity 1s ease;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+/* --- Focus Mode Exit Button --- */
+#focus-exit-btn {
+  position: absolute;
+  bottom: 80px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(7, 11, 25, 0.85);
+  border: 1px solid rgba(255, 34, 102, 0.5);
+  color: #ff2266;
+  font-size: 13px;
+  font-weight: 600;
+  padding: 10px 24px;
+  border-radius: 20px;
+  cursor: pointer;
+  z-index: 30;
+  pointer-events: auto;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.6), 0 0 12px rgba(255, 34, 102, 0.15);
+  backdrop-filter: blur(8px);
+  transition: all 0.3s ease;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+}
+
+#focus-exit-btn:hover {
+  background: rgba(255, 34, 102, 0.15);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.6), 0 0 20px rgba(255, 34, 102, 0.3);
+}
+
+#focus-exit-btn.hidden {
+  opacity: 0;
+  pointer-events: none;
+  transform: translateX(-50%) translateY(10px);
 }

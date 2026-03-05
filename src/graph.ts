@@ -1,9 +1,9 @@
 import * as THREE from 'three';
 
 export const NodeType = {
-    Central: 0,
-    Satellite: 1,
-    Minion: 2
+    Core: 0,
+    StreamHub: 1,
+    Article: 2
 } as const;
 export type NodeType = typeof NodeType[keyof typeof NodeType];
 
@@ -17,6 +17,7 @@ export interface GraphNode {
     connections: number[];
     color: THREE.Color;
     text: string;
+    streamUrl?: string;
 }
 
 export interface Edge {
@@ -30,23 +31,24 @@ export interface GraphData {
 }
 
 export const GRAPH_CONFIG = {
-    satelliteCountMin: 8,
-    satelliteCountMax: 20,
-    satelliteDistanceSpread: 150,
+    streamHubCountMin: 3,
+    streamHubCountMax: 3, // Matches the number of real outlets
+    streamHubDistanceSpread: 280, // Spread further out into the 350 radius sphere
 
     clusterSizeMin: 50,
     clusterSizeMax: 300,
-    clusterSpread: 30,
+    clusterRadius: 60, // Max radius from node center for cluster particles
+    clusterSigma: 0.4, // Gaussian sigma as fraction of clusterRadius (controls tightness)
 
     knnConnections: 3, // k = 3
     bridgeEdgesCount: 15,
 
     nodeSizes: {
-        central: 6.0,
-        satelliteMin: 2.0,
-        satelliteMax: 4.0,
-        minionMin: 0.2,
-        minionMax: 1.0,
+        core: 6.0,
+        streamHubMin: 2.0,
+        streamHubMax: 4.0,
+        articleMin: 0.2,
+        articleMax: 1.0,
     }
 };
 
@@ -69,10 +71,31 @@ function randomPointInSphere(radius: number): THREE.Vector3 {
     );
 }
 
+// Box-Muller transform for Gaussian random values
+function gaussianRandom(): number {
+    let u = 0, v = 0;
+    while (u === 0) u = Math.random();
+    while (v === 0) v = Math.random();
+    return Math.sqrt(-2.0 * Math.log(u)) * Math.cos(2.0 * Math.PI * v);
+}
+
+// Generate a radial offset from origin using Gaussian distribution, clamped to maxRadius
+function gaussianRadialOffset(sigma: number, maxRadius: number): THREE.Vector3 {
+    const ox = gaussianRandom() * sigma;
+    const oy = gaussianRandom() * sigma;
+    const oz = gaussianRandom() * sigma;
+    const offset = new THREE.Vector3(ox, oy, oz);
+    // Clamp to max radius so all particles stay within bounds
+    if (offset.length() > maxRadius) {
+        offset.normalize().multiplyScalar(maxRadius);
+    }
+    return offset;
+}
+
 export function getRandomNodeColor(type: NodeType): THREE.Color {
-    if (type === NodeType.Central) return new THREE.Color(0xff2266); // Neon pinkish red
-    if (type === NodeType.Satellite) return new THREE.Color(0x00e5ff); // Cyan
-    // Minions: mostly white, some pale blue
+    if (type === NodeType.Core) return new THREE.Color(0xff2266); // Neon pinkish red
+    if (type === NodeType.StreamHub) return new THREE.Color(0x00e5ff); // Cyan
+    // Articles: mostly white, some pale blue
     return Math.random() > 0.8 ? new THREE.Color(0xffffff) : new THREE.Color(0xaaaaff);
 }
 
@@ -81,107 +104,117 @@ export function generateGraph(): GraphData {
     const edges: Edge[] = [];
     let nextId = 0;
 
-    // 1. Central Hub
+    // 1. Core Hub
     const centralNode: GraphNode = {
         id: nextId++,
-        type: NodeType.Central,
+        type: NodeType.Core,
         position: new THREE.Vector3(0, 0, 0),
         basePosition: new THREE.Vector3(0, 0, 0),
         velocity: new THREE.Vector3(),
-        size: GRAPH_CONFIG.nodeSizes.central,
+        size: GRAPH_CONFIG.nodeSizes.core,
         connections: [],
-        color: getRandomNodeColor(NodeType.Central),
+        color: getRandomNodeColor(NodeType.Core),
         text: "Global News Core Assembly"
     };
     nodes.push(centralNode);
 
     // Mock Data Arrays
-    const outletNames = [
-        "Galactic Wire", "Deep Space Dispatch", "Nebula Network", "Void Chronicles",
-        "Pulsar Post", "Quantum Daily", "Orbit Observer", "Meteor Morning",
-        "Stellar Standard", "Comet Courier", "Astro Gazette", "Eclipse Enquirer"
+    const outlets = [
+        { name: "NPR Live", url: "https://npr-ice.streamguys1.com/live.mp3" },
+        { name: "BBC World Service", url: "https://stream.live.vc.bbcmedia.co.uk/bbc_world_service" },
+        { name: "Bloomberg Radio", url: "https://playerservices.streamtheworld.com/api/livestream-redirect/WRCAAM.mp3" }
     ];
 
     const headlinePrefixes = [
-        "Breaking: ", "Update: ", "Exclusive: ", "Report: ", "Analysis: ", "Live Data: ", "Alert: "
+        "Breaking: ", "Update: ", "Exclusive: ", "Report: ", "Analysis: ", "Live: ", "Alert: "
     ];
     const headlineTopics = [
-        "market trends shifting in sector 4", "new elemental isotope discovered",
-        "trade negotiations break down", "record solar flare activity recorded",
-        "unidentified signal detected near outer rim", "local election results certified",
-        "AI consciousness debate heats up", "quantum computing milestone reached",
-        "historic peace treaty signed", "stock indices reach all-time high",
-        "revolutionary engine prototype tested", "anomalous gravitational wave localized",
-        "cyber security breach affects millions", "climate goals exceeded ahead of schedule"
+        "inflation data shows unexpected slowdown",
+        "federal reserve signals rate decision ahead",
+        "tech earnings exceed Wall Street expectations",
+        "housing market shows signs of recovery",
+        "unemployment claims drop to six-month low",
+        "trade tensions escalate between major economies",
+        "AI regulation bill advances in Congress",
+        "oil prices surge after OPEC announcement",
+        "healthcare reform legislation gains momentum",
+        "immigration policy overhaul proposed",
+        "climate summit yields new carbon pledges",
+        "education funding bill passes committee vote",
+        "consumer confidence index rises sharply",
+        "infrastructure spending plan unveiled"
     ];
 
-    // 2. Satellite Hubs
-    const numSatellites = Math.floor(randomRange(GRAPH_CONFIG.satelliteCountMin, GRAPH_CONFIG.satelliteCountMax + 1));
-    const satelliteIndices: number[] = [];
+    // 2. Stream Hubs
+    const numHubs = Math.floor(randomRange(GRAPH_CONFIG.streamHubCountMin, GRAPH_CONFIG.streamHubCountMax + 1));
+    const hubIndices: number[] = [];
 
-    for (let i = 0; i < numSatellites; i++) {
-        const pos = randomPointInSphere(GRAPH_CONFIG.satelliteDistanceSpread);
+    for (let i = 0; i < numHubs; i++) {
+        const pos = randomPointInSphere(GRAPH_CONFIG.streamHubDistanceSpread);
         // Push outwards a bit to avoid central occlusion
-        if (pos.length() < GRAPH_CONFIG.satelliteDistanceSpread * 0.3) {
-            pos.normalize().multiplyScalar(GRAPH_CONFIG.satelliteDistanceSpread * 0.3);
+        if (pos.length() < GRAPH_CONFIG.streamHubDistanceSpread * 0.3) {
+            pos.normalize().multiplyScalar(GRAPH_CONFIG.streamHubDistanceSpread * 0.3);
         }
 
-        const outletName = outletNames[i % outletNames.length] + " " + Math.floor(randomRange(1, 99));
-        const satellite: GraphNode = {
+        const outlet = outlets[i % outlets.length];
+        const suffix = i >= outlets.length ? ` (Stream ${i + 1})` : "";
+
+        const streamHub: GraphNode = {
             id: nextId++,
-            type: NodeType.Satellite,
+            type: NodeType.StreamHub,
             position: pos.clone(),
             basePosition: pos.clone(),
             velocity: new THREE.Vector3(),
-            size: randomRange(GRAPH_CONFIG.nodeSizes.satelliteMin, GRAPH_CONFIG.nodeSizes.satelliteMax),
+            size: randomRange(GRAPH_CONFIG.nodeSizes.streamHubMin, GRAPH_CONFIG.nodeSizes.streamHubMax),
             connections: [],
-            color: getRandomNodeColor(NodeType.Satellite),
-            text: outletName
+            color: getRandomNodeColor(NodeType.StreamHub),
+            text: outlet.name + suffix,
+            streamUrl: outlet.url
         };
-        nodes.push(satellite);
-        satelliteIndices.push(satellite.id);
+        nodes.push(streamHub);
+        hubIndices.push(streamHub.id);
 
-        // Edge: Central -> Satellite
-        edges.push({ source: centralNode.id, target: satellite.id });
-        centralNode.connections.push(satellite.id);
-        satellite.connections.push(centralNode.id);
+        // Edge: Core -> Stream Hub
+        edges.push({ source: centralNode.id, target: streamHub.id });
+        centralNode.connections.push(streamHub.id);
+        streamHub.connections.push(centralNode.id);
     }
 
     // 3. Cluster Nodes
     const clusterNodeGroups: number[][] = []; // For bridge connections later
 
-    for (const satId of satelliteIndices) {
-        const satNode = nodes[satId];
-        const numMinions = Math.floor(randomRange(GRAPH_CONFIG.clusterSizeMin, GRAPH_CONFIG.clusterSizeMax + 1));
-        const clusterIndices: number[] = [satId]; // Include satellite in KNN calculation
+    for (const hubId of hubIndices) {
+        const hubNode = nodes[hubId];
+        const numArticles = Math.floor(randomRange(GRAPH_CONFIG.clusterSizeMin, GRAPH_CONFIG.clusterSizeMax + 1));
+        const clusterIndices: number[] = [hubId]; // Include hub in KNN calculation
 
-        for (let j = 0; j < numMinions; j++) {
-            // Gaussian-ish distance (more nodes closer to center)
-            const dist = GRAPH_CONFIG.clusterSpread * Math.pow(Math.random(), 2);
-            const localPos = randomPointInSphere(dist);
-            const pos = satNode.position.clone().add(localPos);
+        for (let j = 0; j < numArticles; j++) {
+            // Gaussian radial distribution centered on the hub node
+            const sigma = GRAPH_CONFIG.clusterRadius * GRAPH_CONFIG.clusterSigma;
+            const localOffset = gaussianRadialOffset(sigma, GRAPH_CONFIG.clusterRadius);
+            const pos = hubNode.position.clone().add(localOffset);
 
             // Long tail size distribution: many small, few larger
             const szT = Math.pow(Math.random(), 4); // Skew towards 0
-            const size = GRAPH_CONFIG.nodeSizes.minionMin + szT * (GRAPH_CONFIG.nodeSizes.minionMax - GRAPH_CONFIG.nodeSizes.minionMin);
+            const size = GRAPH_CONFIG.nodeSizes.articleMin + szT * (GRAPH_CONFIG.nodeSizes.articleMax - GRAPH_CONFIG.nodeSizes.articleMin);
 
             const prefix = headlinePrefixes[Math.floor(Math.random() * headlinePrefixes.length)];
             const topic = headlineTopics[Math.floor(Math.random() * headlineTopics.length)];
             const headline = `${prefix} ${topic}`;
 
-            const minion: GraphNode = {
+            const article: GraphNode = {
                 id: nextId++,
-                type: NodeType.Minion,
+                type: NodeType.Article,
                 position: pos.clone(),
                 basePosition: pos.clone(),
                 velocity: new THREE.Vector3(),
                 size,
                 connections: [],
-                color: getRandomNodeColor(NodeType.Minion),
+                color: getRandomNodeColor(NodeType.Article),
                 text: headline
             };
-            nodes.push(minion);
-            clusterIndices.push(minion.id);
+            nodes.push(article);
+            clusterIndices.push(article.id);
         }
         clusterNodeGroups.push(clusterIndices);
 

@@ -16,19 +16,96 @@
       <button id="enter-btn">Enter</button>
     </div>
   </div>
-  <div id="app" class="hidden">
-    <canvas id="glcanvas"></canvas>
-    <div id="tooltip" class="hidden"></div>
-    <div id="search-panel">
-      <input type="text" id="search-input" placeholder="Search news streams..." autocomplete="off">
-      <ul id="search-results" class="hidden"></ul>
-    </div>
 
-    <div id="volume-control">
-      <button id="mute-btn">MUTE</button>
-      <input type="range" id="volume-slider" min="0" max="1" step="0.01" value="0.3">
+  <div id="tutorial-overlay" class="hidden">
+    <div class="tutorial-bg-particles"></div>
+    <div class="tutorial-content">
+      <h2>How to Navigate</h2>
+      <div class="tutorial-grid">
+        <div class="tutorial-item">
+          <div class="tutorial-icon anim-orbit">
+            <svg width="48" height="48" viewBox="0 0 48 48" fill="none">
+              <circle cx="24" cy="24" r="4" fill="#4488ff" opacity="0.3" />
+              <circle cx="24" cy="24" r="12" stroke="#4488ff" stroke-width="1" fill="none" opacity="0.2" />
+              <circle class="orbit-dot" cx="36" cy="24" r="3" fill="#4488ff" />
+            </svg>
+          </div>
+          <div class="tutorial-label">Click + Drag</div>
+          <div class="tutorial-desc">Orbit around the constellation</div>
+        </div>
+        <div class="tutorial-item">
+          <div class="tutorial-icon anim-zoom">
+            <svg width="48" height="48" viewBox="0 0 48 48" fill="none">
+              <circle class="zoom-lens" cx="22" cy="22" r="10" stroke="#4488ff" stroke-width="2" fill="none" />
+              <line x1="29" y1="29" x2="38" y2="38" stroke="#4488ff" stroke-width="2" stroke-linecap="round" />
+              <line class="zoom-plus-h" x1="18" y1="22" x2="26" y2="22" stroke="#4488ff" stroke-width="1.5"
+                stroke-linecap="round" />
+              <line class="zoom-plus-v" x1="22" y1="18" x2="22" y2="26" stroke="#4488ff" stroke-width="1.5"
+                stroke-linecap="round" />
+            </svg>
+          </div>
+          <div class="tutorial-label">Scroll Wheel</div>
+          <div class="tutorial-desc">Zoom in and out</div>
+        </div>
+        <div class="tutorial-item">
+          <div class="tutorial-icon anim-tap">
+            <svg width="48" height="48" viewBox="0 0 48 48" fill="none">
+              <circle class="tap-ring" cx="24" cy="28" r="8" stroke="#4488ff" stroke-width="1.5" fill="none"
+                opacity="0" />
+              <path class="tap-cursor" d="M24 10 L24 28 M20 24 L24 28 L28 24" stroke="#4488ff" stroke-width="2"
+                stroke-linecap="round" stroke-linejoin="round" fill="none" />
+            </svg>
+          </div>
+          <div class="tutorial-label">Double Click</div>
+          <div class="tutorial-desc">Focus on a news source</div>
+        </div>
+        <div class="tutorial-item">
+          <div class="tutorial-icon anim-key">
+            <svg width="48" height="48" viewBox="0 0 48 48" fill="none">
+              <rect class="key-cap" x="10" y="14" width="28" height="20" rx="4" stroke="#4488ff" stroke-width="1.5"
+                fill="none" />
+              <text x="24" y="28" text-anchor="middle" fill="#4488ff" font-size="11" font-family="system-ui"
+                font-weight="300">ESC</text>
+            </svg>
+          </div>
+          <div class="tutorial-label">Escape Key</div>
+          <div class="tutorial-desc">Exit focus mode</div>
+        </div>
+      </div>
+      <p class="tutorial-hint">Zoom into sources to hear their live audio streams</p>
     </div>
   </div>
+
+  <div id="app" class="hidden">
+    <canvas id="glcanvas"></canvas>
+    <!-- Labels Container for 3D Proximity Overlay -->
+    <div id="labels-container"></div>
+
+    <!-- UI Overlay for Search and Sources -->
+    <div id="ui-container">
+      <div id="search-container">
+        <input type="text" id="search-input" placeholder="Search headlines or outlets..." autocomplete="off" />
+        <ul id="search-results" class="hidden"></ul>
+      </div>
+      <button id="sources-btn" class="ui-button">Sources</button>
+
+      <!-- Audio Controls -->
+      <div id="volume-control">
+        <button id="mute-btn">MUTE</button>
+        <input type="range" id="volume-slider" min="0" max="1" step="0.01" value="0.3">
+      </div>
+    </div>
+
+    <!-- Sources List Panel -->
+    <div id="sources-panel" class="hidden">
+      <h3>Live Sources</h3>
+      <ul id="sources-list"></ul>
+    </div>
+
+    <button id="focus-exit-btn" class="hidden">✕ Exit Focus</button>
+    <div id="tooltip" class="hidden"></div>
+  </div>
+
   <script type="module" src="/src/main.ts"></script>
 </body>
 

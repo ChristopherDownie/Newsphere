@@ -3,14 +3,14 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { createNoise3D } from 'simplex-noise';
 import { generateGraph, NodeType } from './graph';
-import type { GraphData } from './graph';
+import type { GraphData, GraphNode } from './graph';
 
 // --- Configuration ---
 const CONFIG = {
   backgroundColor: 0x070b19, // Dark sleek navy/black
   edgeOpacity: 0.4,
   edgeColor: 0x4488ff, // Bright glowing blue
-  dustCount: 15000,
+  dustCount: 40000,
   dustOpacity: 0.4,
   dustColor: 0x7777ff, // Muted grey dust
   driftSpeed: 0.0002,
@@ -36,6 +36,10 @@ let nodeMesh: THREE.InstancedMesh;
 let edgesLine: THREE.LineSegments;
 let dustPoints: THREE.Points;
 
+// Per-dust-particle data for hub-anchored positioning
+let dustHubIndices: Int32Array; // Index into graphData.nodes for each dust particle's parent hub (-1 = free)
+let dustLocalOffsets: Float32Array; // x,y,z local offset from hub for each particle
+
 const noise3D = createNoise3D();
 const raycaster = new THREE.Raycaster();
 const mouse = new THREE.Vector2();
@@ -45,7 +49,17 @@ let selectedNodeId: number | null = null;
 const tooltipEl = document.getElementById('tooltip') as HTMLDivElement;
 const searchInput = document.getElementById('search-input') as HTMLInputElement;
 const searchResultsEl = document.getElementById('search-results') as HTMLUListElement;
+
+const sourcesBtn = document.getElementById('sources-btn') as HTMLButtonElement;
+const sourcesPanel = document.getElementById('sources-panel') as HTMLDivElement;
+const sourcesList = document.getElementById('sources-list') as HTMLUListElement;
+const labelsContainer = document.getElementById('labels-container') as HTMLDivElement;
+const focusExitBtn = document.getElementById('focus-exit-btn') as HTMLButtonElement;
+
 let searchTerm: string = '';
+
+// UI state
+let isSourcesPanelOpen = false;
 
 let audioListener: THREE.AudioListener;
 let targetMasterVolume = 0.3; // matches new default
@@ -53,6 +67,13 @@ let unmutedVolume = 0.3; // Store volume before muting
 let currentMasterVolume = 0.0;
 let isAudioActive = false;
 let isMuted = false;
+const activeAudioElements: HTMLAudioElement[] = [];
+
+let focusedNodeId: number | null = null;
+const nodeLabels: Map<number, HTMLDivElement> = new Map();
+
+// Audio fade targets for smooth transitions
+const audioFadeTargets: Map<string, number> = new Map();
 
 // Fly-to Animation State
 let isFlying = false;
@@ -72,9 +93,9 @@ function init() {
   scene = new THREE.Scene();
   scene.background = new THREE.Color(CONFIG.backgroundColor);
 
-  // Camera
+  // Camera - start outside the bounding sphere
   camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 1, 10000);
-  camera.position.set(200, 150, 300);
+  camera.position.set(300, 400, 900);
 
   // Audio Setup
   audioListener = new THREE.AudioListener();
@@ -101,6 +122,7 @@ function init() {
   // Generate Data
   graphData = generateGraph();
 
+  createBounds();
   createNodes();
   createEdges();
   createDust();
@@ -127,6 +149,32 @@ function init() {
     if (searchTerm.length > 0) {
       updateSearchResults();
     }
+  });
+
+  // Sources Panel
+  sourcesBtn.addEventListener('click', () => {
+    isSourcesPanelOpen = !isSourcesPanelOpen;
+    if (isSourcesPanelOpen) {
+      sourcesPanel.classList.remove('hidden');
+    } else {
+      sourcesPanel.classList.add('hidden');
+    }
+  });
+
+  // Escape key for Focus Mode
+  window.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && focusedNodeId !== null) {
+      exitFocusMode();
+    }
+  });
+
+  // Interrupt flying on manual user interaction
+  renderer.domElement.addEventListener('pointerdown', () => { isFlying = false; });
+  renderer.domElement.addEventListener('wheel', () => { isFlying = false; });
+
+  // Focus Exit Button
+  focusExitBtn.addEventListener('click', () => {
+    exitFocusMode();
   });
 
   // Landing Page Enter Button
@@ -172,6 +220,8 @@ function init() {
   }
 
   if (enterBtn && landingPage && appContainer) {
+    const tutorialOverlay = document.getElementById('tutorial-overlay');
+
     enterBtn.addEventListener('click', () => {
       // Browser requires user interaction to resume audio context
       if (audioListener.context.state === 'suspended') {
@@ -179,8 +229,32 @@ function init() {
       }
       isAudioActive = true;
 
+      // Start the live streams globally
+      activeAudioElements.forEach(el => {
+        el.play().catch(e => console.warn('Audio play error:', e));
+      });
+
+      // 1. Hide landing page
       landingPage.classList.add('hidden');
-      appContainer.classList.remove('hidden');
+
+      // 2. Show tutorial overlay
+      if (tutorialOverlay) {
+        tutorialOverlay.classList.remove('hidden');
+
+        // 3. After 3.5 seconds, fade out tutorial and show the 3D world
+        setTimeout(() => {
+          tutorialOverlay.classList.add('fade-out');
+          appContainer.classList.remove('hidden');
+
+          // 4. Remove tutorial from DOM after fade completes
+          setTimeout(() => {
+            tutorialOverlay.style.display = 'none';
+          }, 1500);
+        }, 3500);
+      } else {
+        // Fallback: no tutorial element, just show app
+        appContainer.classList.remove('hidden');
+      }
     });
   }
 }
@@ -201,9 +275,16 @@ function createNodes() {
     nodeMesh.setMatrixAt(i, dummy.matrix);
     nodeMesh.setColorAt(i, node.color);
 
-    // If it's a Satellite Hub, attach procedural positional audio
-    if (node.type === NodeType.Satellite) {
-      setupPositionalMurmur(node.position);
+    // If it's a Stream Hub, attach live streaming positional audio
+    if (node.type === NodeType.StreamHub) {
+      setupStreamingAudio(node);
+
+      // Create HTML label overlay
+      const label = document.createElement('div');
+      label.className = 'node-label';
+      label.textContent = node.text;
+      labelsContainer.appendChild(label);
+      nodeLabels.set(node.id, label);
     }
   }
 
@@ -211,44 +292,65 @@ function createNodes() {
   if (nodeMesh.instanceColor) nodeMesh.instanceColor.needsUpdate = true;
 
   scene.add(nodeMesh);
+
+  // Populate Sources Sidebar List
+  const streamHubs = graphData.nodes.filter(n => n.type === NodeType.StreamHub);
+  streamHubs.forEach(hub => {
+    const li = document.createElement('li');
+    li.innerText = hub.text;
+    li.addEventListener('click', () => {
+      flyToNode(hub.id);
+      if (window.innerWidth < 768) {
+        sourcesPanel.classList.add('hidden'); // auto close on mobile/small screens
+        isSourcesPanelOpen = false;
+      }
+    });
+    sourcesList.appendChild(li);
+  });
 }
 
-function setupPositionalMurmur(position: THREE.Vector3) {
-  // Wait until we have an AudioContext from listener
-  if (!audioListener.context) return;
-  const ctx = audioListener.context;
+function createBounds() {
+  const geometry = new THREE.SphereGeometry(350, 32, 32);
+  const material = new THREE.MeshBasicMaterial({
+    color: 0x4488ff,
+    wireframe: true,
+    transparent: true,
+    opacity: 0.05,
+    blending: THREE.AdditiveBlending,
+    depthWrite: false
+  });
+  const sphere = new THREE.Mesh(geometry, material);
+  scene.add(sphere);
+}
 
-  // Create a 2-second looping white/brown noise buffer for murmur
-  const bufferSize = ctx.sampleRate * 2;
-  const buffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
-  const data = buffer.getChannelData(0);
+function setupStreamingAudio(node: GraphNode) {
+  // Create a standard HTML Audio element
+  const audioElement = new Audio(node.streamUrl);
+  audioElement.crossOrigin = 'anonymous'; // CRITICAL for Web Audio API with external streams
+  audioElement.loop = true;
+  audioElement.volume = 1.0;
 
-  let lastOut = 0;
-  for (let i = 0; i < bufferSize; i++) {
-    const white = Math.random() * 2 - 1;
-    // Simple lowpass filter for brown noise (muffled speech sound)
-    data[i] = (lastOut + (0.02 * white)) / 1.02;
-    lastOut = data[i];
-    // Modulate amplitude to sound like speech cadence
-    data[i] *= (Math.sin(i * 0.0001) * 0.5 + 0.5) * (Math.sin(i * 0.0005) * 0.8 + 0.2);
-  }
+  // Tag element with node ID for focus muting
+  audioElement.dataset.nodeId = node.id.toString();
 
+  activeAudioElements.push(audioElement);
+
+  // Create a Three.js PositionalAudio object
   const positionalAudio = new THREE.PositionalAudio(audioListener);
-  positionalAudio.setBuffer(buffer);
-  positionalAudio.setRefDistance(50); // Increased so it sounds fuller from further
-  positionalAudio.setMaxDistance(300);
-  positionalAudio.setRolloffFactor(0.5); // Softer drop-off curve
-  positionalAudio.setLoop(true);
-  positionalAudio.setVolume(1.5);
+  positionalAudio.setMediaElementSource(audioElement);
+  positionalAudio.setRefDistance(50);
+  positionalAudio.setMaxDistance(500);
+  positionalAudio.setRolloffFactor(1);
+  positionalAudio.setVolume(1.0); // Base volume, will be affected by master and distance
 
   // Create an invisible object to hold audio
   const audioObj = new THREE.Object3D();
-  audioObj.position.copy(position);
+  audioObj.position.copy(node.position);
   audioObj.add(positionalAudio);
   scene.add(audioObj);
 
   // Start playing (will be silent until context resumes)
-  positionalAudio.play();
+  audioElement.play().catch(e => console.warn("Audio playback failed:", e));
 }
 
 function createEdges() {
@@ -274,31 +376,49 @@ function createDust() {
   const dustGeo = new THREE.BufferGeometry();
   const dustPositions = new Float32Array(CONFIG.dustCount * 3);
 
-  let pIdx = 0;
+  // Store hub associations for each dust particle
+  dustHubIndices = new Int32Array(CONFIG.dustCount);
+  dustLocalOffsets = new Float32Array(CONFIG.dustCount * 3);
+
   // Distribute dust mostly around hubs
-  const hubs = graphData.nodes.filter(n => n.type === NodeType.Central || n.type === NodeType.Satellite);
+  const hubs = graphData.nodes.filter(n => n.type === NodeType.Core || n.type === NodeType.StreamHub);
 
   for (let i = 0; i < CONFIG.dustCount; i++) {
-    // Pick a random hub to cluster around, or completely random 20% of time
-    let origin = new THREE.Vector3(0, 0, 0);
-    let spread = 200;
+    let hubIdx = -1; // -1 means free-floating
+    let spread = 350; // Fill the full bounding sphere
+    let originX = 0, originY = 0, originZ = 0;
 
-    if (Math.random() > 0.2 && hubs.length > 0) {
+    if (Math.random() > 0.5 && hubs.length > 0) {
       const hub = hubs[Math.floor(Math.random() * hubs.length)];
-      origin.copy(hub.position);
+      hubIdx = hub.id;
+      originX = hub.position.x;
+      originY = hub.position.y;
+      originZ = hub.position.z;
       spread = 80;
     }
 
-    // Random point in sphere
+    // Random point in sphere (local offset)
     const u = Math.random();
     const v = Math.random();
     const theta = 2 * Math.PI * u;
     const phi = Math.acos(2 * v - 1);
     const r = Math.cbrt(Math.random()) * spread;
 
-    dustPositions[pIdx++] = origin.x + r * Math.sin(phi) * Math.cos(theta);
-    dustPositions[pIdx++] = origin.y + r * Math.sin(phi) * Math.sin(theta);
-    dustPositions[pIdx++] = origin.z + r * Math.cos(phi);
+    const ox = r * Math.sin(phi) * Math.cos(theta);
+    const oy = r * Math.sin(phi) * Math.sin(theta);
+    const oz = r * Math.cos(phi);
+
+    // Store hub index and local offset for per-frame tracking
+    dustHubIndices[i] = hubIdx;
+    dustLocalOffsets[i * 3] = ox;
+    dustLocalOffsets[i * 3 + 1] = oy;
+    dustLocalOffsets[i * 3 + 2] = oz;
+
+    // Initial position = hub origin + offset
+    const pIdx = i * 3;
+    dustPositions[pIdx] = originX + ox;
+    dustPositions[pIdx + 1] = originY + oy;
+    dustPositions[pIdx + 2] = originZ + oz;
   }
 
   dustGeo.setAttribute('position', new THREE.BufferAttribute(dustPositions, 3));
@@ -351,7 +471,7 @@ function updatePhysics(time: number) {
   // Update node positions with drift
   for (let i = 0; i < graphData.nodes.length; i++) {
     const node = graphData.nodes[i];
-    if (node.type === NodeType.Central) continue; // Keep central steady
+    if (node.type === NodeType.Core) continue; // Keep central steady
 
     // Simplex noise based drift offset target
     const nx = noise3D(node.basePosition.x * 0.01, node.basePosition.y * 0.01, time * CONFIG.driftSpeed);
@@ -494,10 +614,44 @@ function updatePhysics(time: number) {
     edgesLine.geometry.attributes.position.needsUpdate = true;
   }
 
-  // Soft swirl for dust
-  if (dustPoints) {
-    dustPoints.rotation.y = time * CONFIG.dustSwirlSpeed;
-    dustPoints.rotation.x = Math.sin(time * CONFIG.dustSwirlSpeed * 0.5) * 0.05;
+  // Update dust positions to track their parent hub nodes
+  if (dustPoints && dustHubIndices) {
+    const dustPositions = dustPoints.geometry.attributes.position.array as Float32Array;
+    const freeDriftSpeed = 0.002; // Much faster than node drift
+    const freeDriftAmplitude = 8.0;
+    for (let i = 0; i < CONFIG.dustCount; i++) {
+      const hubIdx = dustHubIndices[i];
+      const pIdx = i * 3;
+      if (hubIdx >= 0 && hubIdx < graphData.nodes.length) {
+        // Anchored to a hub: position = hub's current position + stored local offset
+        const hub = graphData.nodes[hubIdx];
+        dustPositions[pIdx] = hub.position.x + dustLocalOffsets[pIdx];
+        dustPositions[pIdx + 1] = hub.position.y + dustLocalOffsets[pIdx + 1];
+        dustPositions[pIdx + 2] = hub.position.z + dustLocalOffsets[pIdx + 2];
+      } else {
+        // Free-floating: drift using simplex noise for organic movement
+        const baseX = dustLocalOffsets[pIdx];
+        const baseY = dustLocalOffsets[pIdx + 1];
+        const baseZ = dustLocalOffsets[pIdx + 2];
+        const seed = i * 0.1; // Unique per particle
+        const nx = noise3D(baseX * 0.005 + seed, baseY * 0.005, time * freeDriftSpeed);
+        const ny = noise3D(baseY * 0.005, baseZ * 0.005 + seed, time * freeDriftSpeed + 50);
+        const nz = noise3D(baseZ * 0.005 + seed, baseX * 0.005, time * freeDriftSpeed + 100);
+        let px = baseX + nx * freeDriftAmplitude;
+        let py = baseY + ny * freeDriftAmplitude;
+        let pz = baseZ + nz * freeDriftAmplitude;
+        // Clamp within bounding sphere
+        const dist = Math.sqrt(px * px + py * py + pz * pz);
+        if (dist > 340) {
+          const s = 340 / dist;
+          px *= s; py *= s; pz *= s;
+        }
+        dustPositions[pIdx] = px;
+        dustPositions[pIdx + 1] = py;
+        dustPositions[pIdx + 2] = pz;
+      }
+    }
+    dustPoints.geometry.attributes.position.needsUpdate = true;
   }
 
   // Edge breathing effect
@@ -520,8 +674,8 @@ function updateInteraction() {
 
       // Update tooltip
       tooltipEl.classList.remove('hidden');
-      const typeStr = node.type === NodeType.Central ? 'Central Hub' :
-        (node.type === NodeType.Satellite ? 'Satellite Hub' : 'Node');
+      const typeStr = node.type === NodeType.Core ? 'Core Hub' :
+        (node.type === NodeType.StreamHub ? 'Stream Hub' : 'Article');
       tooltipEl.innerHTML = `<strong>${typeStr}</strong><br/>ID: ${node.id}<br/>Connections: ${node.connections.length}`;
     }
   } else {
@@ -533,16 +687,110 @@ function updateInteraction() {
   }
 }
 
+function updateProximityLabels() {
+  const v = new THREE.Vector3();
+  const halfW = window.innerWidth / 2;
+  const halfH = window.innerHeight / 2;
+
+  nodeLabels.forEach((labelEl, id) => {
+    const node = graphData.nodes[id];
+
+    // Calculate distance from camera to node
+    const distanceSq = camera.position.distanceToSquared(node.position);
+
+    // Fade in text label between distances 120 and 600 (squared: 14400 and 360000)
+    if (distanceSq < 360000) {
+      // Map screen coordinates
+      v.copy(node.position);
+      v.project(camera);
+
+      // Only show if in front of camera
+      if (v.z < 1) {
+        const screenX = (v.x * halfW) + halfW;
+        const screenY = -(v.y * halfH) + halfH;
+
+        labelEl.style.transform = `translate(-50%, -100%) translate(${screenX}px, ${screenY - 20}px)`;
+
+        // Calculate opacity based on squared distance for smoother fade
+        // Max opacity at distanceSq < 14400 (distance < 120)
+        // 0 opacity at distanceSq > 360000 (distance > 600)
+        let opacity = 1.0 - ((distanceSq - 14400) / (360000 - 14400));
+        opacity = Math.max(0, Math.min(0.9, opacity)); // Cap at 0.9 for subtlety
+
+        // If focused, force full opacity for this label
+        if (focusedNodeId === id) {
+          opacity = 1.0;
+        }
+
+        labelEl.style.opacity = opacity.toString();
+        labelEl.style.display = opacity > 0 ? 'block' : 'none';
+      } else {
+        labelEl.style.opacity = '0';
+        labelEl.style.display = 'none';
+      }
+    } else {
+      labelEl.style.opacity = '0';
+      labelEl.style.display = 'none';
+    }
+  });
+}
+
+function updateAudioFades() {
+  // Smoothly lerp each audio element's volume toward its fade target
+  activeAudioElements.forEach(el => {
+    const nodeId = el.dataset.nodeId || '';
+    const target = audioFadeTargets.get(nodeId) ?? 1.0;
+    const current = el.volume;
+    if (Math.abs(current - target) > 0.005) {
+      el.volume = current + (target - current) * 0.03; // Smooth fade ~1-2 seconds
+    } else {
+      el.volume = target;
+    }
+  });
+}
+
+function exitFocusMode() {
+  focusedNodeId = null;
+
+  // Fade all audio streams back to full volume
+  activeAudioElements.forEach(el => {
+    const nodeId = el.dataset.nodeId || '';
+    audioFadeTargets.set(nodeId, 1.0);
+  });
+
+  // Hide exit button
+  focusExitBtn.classList.add('hidden');
+
+  // Pull camera back and reset orbit center to scene origin
+  targetCameraPos.copy(camera.position).add(camera.position.clone().normalize().multiplyScalar(150));
+  targetControlsCenter.set(0, 0, 0); // Return orbit center to scene origin
+  isFlying = true;
+}
+
 function flyToNode(nodeId: number) {
   selectedNodeId = nodeId;
   const node = graphData.nodes[selectedNodeId];
 
-  // Trigger Speech Synthesis
-  window.speechSynthesis.cancel(); // Cancel any current speech
-  const utterance = new SpeechSynthesisUtterance(node.text);
-  utterance.rate = 0.9;
-  utterance.pitch = node.type === NodeType.Central ? 0.8 : 1.0;
-  window.speechSynthesis.speak(utterance);
+  // If focusing on a StreamHub, initiate Audio Focus Mode
+  if (node.type === NodeType.StreamHub) {
+    focusedNodeId = nodeId;
+
+    // Set fade targets: focused source stays full, others fade out
+    activeAudioElements.forEach(el => {
+      const nId = el.dataset.nodeId || '';
+      if (nId === nodeId.toString()) {
+        audioFadeTargets.set(nId, 1.0);
+      } else {
+        audioFadeTargets.set(nId, 0.0);
+      }
+    });
+
+    // Show exit button
+    focusExitBtn.classList.remove('hidden');
+  } else {
+    // If we click on an Article, clear focus
+    exitFocusMode();
+  }
 
   // Calculate Fly-to Target (offset slightly so we don't end up INSIDE the node)
   targetControlsCenter.copy(node.position);
@@ -591,29 +839,62 @@ function animate(time: number) {
 
   updatePhysics(time);
   updateInteraction();
+  updateProximityLabels();
+  updateAudioFades();
 
   if (audioListener) {
-    if (isAudioActive) {
-      if (Math.abs(currentMasterVolume - targetMasterVolume) > 0.001) {
-        currentMasterVolume += (targetMasterVolume - currentMasterVolume) * 0.005; // Much slower fade lerp (approx 3-5 seconds depending on framerate)
+    let computedTargetVolume = 0.0;
+
+    if (isAudioActive && !isMuted) {
+      if (focusedNodeId !== null) {
+        // In focus mode, bypass distance drop-off for master volume
+        computedTargetVolume = targetMasterVolume;
       } else {
-        currentMasterVolume = targetMasterVolume;
+        // Normal global spatial mixing
+        const distance = camera.position.length();
+
+        // Calculate multiplier based on camera zoom relative to constellation
+        // Start fading much further out (500) and reach max deeper in (150)
+        if (distance < 150) {
+          computedTargetVolume = targetMasterVolume; // Fully inside, maximum volume
+        } else if (distance > 500) {
+          computedTargetVolume = 0.0; // Fully outside bounds
+        } else {
+          // Fade between 150 and 500 with a smooth easing function
+          let factor = 1.0 - ((distance - 150) / 350);
+          factor = factor * factor * (3 - 2 * factor); // smoothstep mapping for organic feel
+          computedTargetVolume = targetMasterVolume * factor;
+        }
       }
     } else {
-      currentMasterVolume = 0.0;
+      computedTargetVolume = 0.0;
+    }
+
+    if (Math.abs(currentMasterVolume - computedTargetVolume) > 0.001) {
+      currentMasterVolume += (computedTargetVolume - currentMasterVolume) * 0.005; // Much slower fade lerp (approx 3-5 seconds depending on framerate)
+    } else {
+      currentMasterVolume = computedTargetVolume;
     }
     audioListener.setMasterVolume(currentMasterVolume);
   }
 
   if (isFlying) {
+    // Disable auto-rotate while flying so it doesn't push camera off target
+    const wasAutoRotate = controls.autoRotate;
+    controls.autoRotate = false;
+
     // Lerp camera and controls target for smooth flight
     camera.position.lerp(targetCameraPos, 0.05);
     controls.target.lerp(targetControlsCenter, 0.05);
 
-    // Stop flying if close enough
-    if (camera.position.distanceToSquared(targetCameraPos) < 1.0) {
+    // Stop flying if close enough (loosened threshold to ensure it triggers)
+    if (camera.position.distanceToSquared(targetCameraPos) < 25.0 &&
+      controls.target.distanceToSquared(targetControlsCenter) < 25.0) {
       isFlying = false;
     }
+
+    // Restore autoRotate if it was globally enabled
+    if (!isFlying) controls.autoRotate = wasAutoRotate;
   }
 
   controls.update(); // only needed if damping or autoRotate is enabled
