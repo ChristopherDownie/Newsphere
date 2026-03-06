@@ -457,17 +457,17 @@ function setupWooshSound() {
   noiseSource.buffer = noiseBuffer;
   noiseSource.loop = true;
 
-  // Bandpass filter — centered deep (200 Hz) for a low rumbling wind
+  // Bandpass filter — centered very deep (80 Hz) for a sub-bass space rumble
   const bandpass = ctx.createBiquadFilter();
   bandpass.type = 'bandpass';
-  bandpass.frequency.value = 200;
-  bandpass.Q.value = 0.5; // Wide bandwidth for natural wind character
+  bandpass.frequency.value = 80;
+  bandpass.Q.value = 0.8; // Tighter around the low end for that deep space feel
 
-  // Lowpass filter — cutoff rises with speed for more brightness at high velocity
+  // Lowpass filter — cutoff rises with speed, but stays muffled overall
   const lowpass = ctx.createBiquadFilter();
   lowpass.type = 'lowpass';
-  lowpass.frequency.value = 150; // Starts very muffled
-  lowpass.Q.value = 0.7;
+  lowpass.frequency.value = 80; // Starts extremely muffled
+  lowpass.Q.value = 0.5;
 
   // Gain node — volume driven by camera speed
   const gain = ctx.createGain();
@@ -1132,14 +1132,23 @@ function animate(time: number) {
   smoothedSpeed += (cameraDelta - smoothedSpeed) * 0.08;
 
   if (wooshGain && wooshLowpass) {
-    // Map speed -> volume: ramp from 0 at rest to ~0.25 at high speed
-    // Typical orbit drag speed is 1-10, zoom can be 10-40+
+    // Map speed -> volume: ramp from 0 at rest to ~0.3 at high speed
     const speedNorm = Math.min(smoothedSpeed / 25, 1.0);
-    const targetWooshVol = speedNorm * speedNorm * 0.25; // quadratic for natural feel
+    const targetWooshVol = speedNorm * speedNorm * 0.3; // quadratic for natural feel
     wooshGain.gain.value += (targetWooshVol - wooshGain.gain.value) * 0.1;
 
-    // Map speed -> lowpass cutoff: 150 Hz at rest up to 1200 Hz at speed
-    const targetCutoff = 150 + speedNorm * 1050;
+    // Sphere proximity muffling: deeper inside = more muffled
+    const camDist = camera.position.length();
+    const sphereRadius = 350;
+    // 1.0 when outside sphere, drops toward 0.2 at dead center
+    const proximityFactor = camDist >= sphereRadius
+      ? 1.0
+      : 0.2 + 0.8 * (camDist / sphereRadius);
+
+    // Map speed -> lowpass cutoff: 80 Hz at rest up to 600 Hz at max speed,
+    // then scale down by proximity (muffled inside the sphere)
+    const baseCutoff = 80 + speedNorm * 520;
+    const targetCutoff = baseCutoff * proximityFactor;
     wooshLowpass.frequency.value += (targetCutoff - wooshLowpass.frequency.value) * 0.1;
 
     // Respect mute state
