@@ -206,19 +206,18 @@ export class YouTubePlayerManager {
 
     /**
      * Start all players. Must be called after a user gesture.
-     * Players start at volume 0 — the animate loop's spatial volume
-     * logic will fade them up based on camera distance.
+     * Players remain MUTED — the per-frame spatial volume loop
+     * will unmute individual players when their volume > 0.
      */
     playAll(): void {
         this.players.forEach((managed) => {
             if (managed.ready && managed.player) {
                 try {
-                    // Set volume to 0 FIRST to prevent audio blast
+                    // Keep the player muted and at volume 0.
+                    // The animate loop's setVolume() will handle unmuting.
                     managed.player.setVolume(0);
                     managed.currentVolume = 0;
-                    // Unmute so setVolume actually has an effect
-                    managed.player.unMute();
-                    // Start playback (silent until spatial volume kicks in)
+                    // Start playback while muted (mute:1 was set in playerVars)
                     managed.player.playVideo();
                 } catch (e) {
                     console.warn(`[YT] Play failed for ${managed.name}:`, e);
@@ -244,20 +243,32 @@ export class YouTubePlayerManager {
 
     /**
      * Set volume for a specific node's player (0 - 100).
+     * Handles mute/unmute automatically: mutes when vol=0, unmutes when vol>0.
      */
     setVolume(nodeId: string, volume: number): void {
         const managed = this.players.get(nodeId);
         if (managed && managed.ready && managed.player) {
             const clamped = Math.max(0, Math.min(100, Math.round(volume)));
-            // Always set on first call (when currentVolume matches default)
-            // or when volume changes by more than 1
-            if (managed.currentVolume !== clamped) {
-                managed.currentVolume = clamped;
-                try {
-                    managed.player.setVolume(clamped);
-                } catch {
-                    // ignore during transitions
+            try {
+                if (clamped === 0) {
+                    // Mute and set volume 0 for true silence
+                    if (managed.currentVolume !== 0) {
+                        managed.player.mute();
+                        managed.player.setVolume(0);
+                        managed.currentVolume = 0;
+                    }
+                } else {
+                    // Unmute if currently at 0, then set volume
+                    if (managed.currentVolume === 0) {
+                        managed.player.setVolume(clamped);
+                        managed.player.unMute();
+                    } else if (managed.currentVolume !== clamped) {
+                        managed.player.setVolume(clamped);
+                    }
+                    managed.currentVolume = clamped;
                 }
+            } catch {
+                // ignore during transitions
             }
         }
     }

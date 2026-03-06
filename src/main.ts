@@ -1276,14 +1276,13 @@ function animate(time: number) {
       }
 
       // Compute final volume (0-100 for YouTube API)
-      const finalVol = Math.max(0, Math.min(100, currentMasterVolume * spatialGain * newFade * 100));
+      // When muted or inactive, force volume to 0 — setVolume handles muting
+      let finalVol = 0;
+      if (isAudioActive && !isMuted) {
+        finalVol = Math.max(0, Math.min(100, Math.round(currentMasterVolume * spatialGain * newFade * 100)));
+      }
       ytManager.setVolume(nodeId, finalVol);
     });
-
-    // Handle mute state
-    if (isMuted || !isAudioActive) {
-      ytManager.muteAll();
-    }
   }
 
   if (isFlying) {

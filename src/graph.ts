@@ -31,9 +31,9 @@ export interface GraphData {
 }
 
 export const GRAPH_CONFIG = {
-    streamHubCountMin: 8,
-    streamHubCountMax: 8, // Matches the number of real outlets
-    streamHubDistanceSpread: 280, // Spread further out into the 350 radius sphere
+    streamHubCountMin: 18,
+    streamHubCountMax: 18, // Matches the number of real outlets
+    streamHubDistanceSpread: 320, // Spread further to accommodate more hubs
 
     clusterSizeMin: 50,
     clusterSizeMax: 300,
@@ -128,6 +128,16 @@ export function generateGraph(): GraphData {
         { name: "France 24 English", videoId: "Ap-UM1O9RBU" },
         { name: "DW News", videoId: "LuKwFajn37U" },
         { name: "Euronews", videoId: "pykpO5kQJ98" },
+        { name: "India Today", videoId: "flcpBdx4dds" },
+        { name: "LiveNOW from FOX", videoId: "zlt9KDUdvUY" },
+        { name: "Africanews", videoId: "NQjabLGdP5g" },
+        { name: "ABC News Australia", videoId: "vOTiJkg1voo" },
+        { name: "NDTV", videoId: "HgRRa1A5Wk4" },
+        { name: "NHK World Japan", videoId: "f0lYkdA-Gtw" },
+        { name: "TeleSUR English", videoId: "3nN3vtMzxTo" },
+        { name: "WION", videoId: "vfszY1JYbMc" },
+        { name: "GB News", videoId: "QliL4CGc7iY" },
+        { name: "Bloomberg Television", videoId: "iEpJwprxDdk" },
     ];
 
     const headlinePrefixes = [
