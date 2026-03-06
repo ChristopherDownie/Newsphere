@@ -6,13 +6,32 @@ import { generateGraph, NodeType } from './graph';
 import type { GraphData, GraphNode } from './graph';
 
 // --- Configuration ---
+const THEMES = {
+  dark: {
+    backgroundColor: 0x070b19,
+    edgeColor: 0x4488ff,
+    ambientDustColor: 0x7777ff,
+    hubDustColor: 0x7777ff,
+    ambientDustOpacity: 0.4,
+    nodeTextDimmed: '#666677'
+  },
+  light: {
+    backgroundColor: 0xe8e4e0, // Milky warm grey
+    edgeColor: 0x00e5cc, // Neon teal connections
+    ambientDustColor: 0x000000, // Pure black ambient dust
+    hubDustColor: 0x111111, // Near-black hub dust
+    ambientDustOpacity: 1.0, // Full opacity
+    nodeTextDimmed: '#aaaaaa'
+  }
+};
+
+let currentTheme: 'dark' | 'light' = 'dark';
+
 const CONFIG = {
-  backgroundColor: 0x070b19, // Dark sleek navy/black
+  ...THEMES.dark,
   edgeOpacity: 0.4,
-  edgeColor: 0x4488ff, // Bright glowing blue
   dustCount: 40000,
-  dustOpacity: 0.4,
-  dustColor: 0x7777ff, // Muted grey dust
+  hubDustOpacity: 0.8,
   driftSpeed: 0.0002,
   driftAmplitude: 2.0,
   dustSwirlSpeed: 0.0005,
@@ -34,11 +53,14 @@ let graphData: GraphData;
 
 let nodeMesh: THREE.InstancedMesh;
 let edgesLine: THREE.LineSegments;
-let dustPoints: THREE.Points;
+let hubDustPoints: THREE.Points;
+let ambientDustPoints: THREE.Points;
+let boundsSphere: THREE.Mesh;
 
 // Per-dust-particle data for hub-anchored positioning
-let dustHubIndices: Int32Array; // Index into graphData.nodes for each dust particle's parent hub (-1 = free)
-let dustLocalOffsets: Float32Array; // x,y,z local offset from hub for each particle
+let hubDustHubIndices: Int32Array; // Index into graphData.nodes for each hub dust particle
+let hubDustLocalOffsets: Float32Array;
+let ambientDustOffsets: Float32Array; // x,y,z local offset from hub for each particle
 
 const noise3D = createNoise3D();
 const raycaster = new THREE.Raycaster();
@@ -46,6 +68,7 @@ const mouse = new THREE.Vector2();
 
 let hoveredNodeId: number | null = null;
 let selectedNodeId: number | null = null;
+let focusedNodeId: number | null = null; // The node currently being focused for audio
 const tooltipEl = document.getElementById('tooltip') as HTMLDivElement;
 const searchInput = document.getElementById('search-input') as HTMLInputElement;
 const searchResultsEl = document.getElementById('search-results') as HTMLUListElement;
@@ -69,7 +92,9 @@ let isAudioActive = false;
 let isMuted = false;
 const activeAudioElements: HTMLAudioElement[] = [];
 
-let focusedNodeId: number | null = null;
+// Map each audio element's nodeId to its 3D position for distance-based volume
+const audioNodePositions: Map<string, THREE.Vector3> = new Map();
+
 const nodeLabels: Map<number, HTMLDivElement> = new Map();
 
 // Audio fade targets for smooth transitions
@@ -160,6 +185,86 @@ function init() {
       sourcesPanel.classList.add('hidden');
     }
   });
+
+  // Theme Toggle Button
+  const themeToggleBtn = document.getElementById('theme-toggle-btn') as HTMLButtonElement;
+  if (themeToggleBtn) {
+    themeToggleBtn.addEventListener('click', () => {
+      currentTheme = currentTheme === 'dark' ? 'light' : 'dark';
+
+      // Update document body for CSS styling
+      if (currentTheme === 'light') {
+        document.body.classList.add('light-theme');
+        themeToggleBtn.innerText = 'Theme: Light';
+      } else {
+        document.body.classList.remove('light-theme');
+        themeToggleBtn.innerText = 'Theme: Dark';
+      }
+
+      // Apply theme settings to CONFIG
+      const themeConfig = THEMES[currentTheme];
+      Object.assign(CONFIG, themeConfig);
+
+      // Update Materials dynamically
+      scene.background = new THREE.Color(themeConfig.backgroundColor);
+      if (edgesLine) {
+        (edgesLine.material as THREE.LineBasicMaterial).color.setHex(themeConfig.edgeColor);
+      }
+      if (ambientDustPoints) {
+        (ambientDustPoints.material as THREE.PointsMaterial).color.setHex(themeConfig.ambientDustColor);
+        (ambientDustPoints.material as THREE.PointsMaterial).opacity = themeConfig.ambientDustOpacity;
+      }
+      if (hubDustPoints) {
+        (hubDustPoints.material as THREE.PointsMaterial).color.setHex(themeConfig.hubDustColor);
+        (hubDustPoints.material as THREE.PointsMaterial).blending = currentTheme === 'light' ? THREE.NormalBlending : THREE.AdditiveBlending;
+      }
+      if (ambientDustPoints) {
+        (ambientDustPoints.material as THREE.PointsMaterial).blending = currentTheme === 'light' ? THREE.NormalBlending : THREE.AdditiveBlending;
+      }
+      if (edgesLine) {
+        const edgeMat = edgesLine.material as THREE.LineBasicMaterial;
+        edgeMat.blending = currentTheme === 'light' ? THREE.NormalBlending : THREE.AdditiveBlending;
+        edgeMat.opacity = currentTheme === 'light' ? 1.0 : CONFIG.edgeOpacity;
+        edgeMat.linewidth = currentTheme === 'light' ? 2 : 1;
+      }
+
+      // Update wireframe sphere
+      if (boundsSphere) {
+        const mat = boundsSphere.material as THREE.MeshBasicMaterial;
+        if (currentTheme === 'light') {
+          mat.color.setHex(0x333333);
+          mat.opacity = 0.25;
+          mat.blending = THREE.NormalBlending;
+        } else {
+          mat.color.setHex(0x4488ff);
+          mat.opacity = 0.05;
+          mat.blending = THREE.AdditiveBlending;
+        }
+      }
+
+      // Trigger a re-render/update for nodes
+      updatePhysics(performance.now());
+
+      // Update all HTML labels color
+      nodeLabels.forEach((el, i) => {
+        const node = graphData.nodes[i];
+        // Hide label if search is active and doesn't match
+        if (searchTerm.length > 0 && !node.text.toLowerCase().includes(searchTerm)) {
+          if (!el.classList.contains('dimmed')) {
+            el.classList.add('dimmed');
+            el.style.color = currentTheme === 'light' ? THEMES.light.nodeTextDimmed : THEMES.dark.nodeTextDimmed;
+          }
+        } else {
+          el.classList.remove('dimmed');
+          if (i === hoveredNodeId || i === selectedNodeId) {
+            el.style.color = currentTheme === 'light' ? '#000000' : '#ffffff';
+          } else {
+            el.style.color = currentTheme === 'light' ? '#444444' : 'rgba(255, 255, 255, 0.9)';
+          }
+        }
+      });
+    });
+  }
 
   // Escape key for Focus Mode
   window.addEventListener('keydown', (e) => {
@@ -319,37 +424,26 @@ function createBounds() {
     blending: THREE.AdditiveBlending,
     depthWrite: false
   });
-  const sphere = new THREE.Mesh(geometry, material);
-  scene.add(sphere);
+  boundsSphere = new THREE.Mesh(geometry, material);
+  scene.add(boundsSphere);
 }
 
 function setupStreamingAudio(node: GraphNode) {
-  // Create a standard HTML Audio element
+  // Create a standard HTML Audio element — no crossOrigin needed since we
+  // do NOT route through Web Audio API (createMediaElementSource requires CORS).
   const audioElement = new Audio(node.streamUrl);
-  audioElement.crossOrigin = 'anonymous'; // CRITICAL for Web Audio API with external streams
   audioElement.loop = true;
-  audioElement.volume = 1.0;
+  audioElement.volume = 0; // Start silent, animate() will set volume based on distance
 
-  // Tag element with node ID for focus muting
+  // Tag element with node ID for focus muting / distance volume
   audioElement.dataset.nodeId = node.id.toString();
 
   activeAudioElements.push(audioElement);
 
-  // Create a Three.js PositionalAudio object
-  const positionalAudio = new THREE.PositionalAudio(audioListener);
-  positionalAudio.setMediaElementSource(audioElement);
-  positionalAudio.setRefDistance(50);
-  positionalAudio.setMaxDistance(500);
-  positionalAudio.setRolloffFactor(1);
-  positionalAudio.setVolume(1.0); // Base volume, will be affected by master and distance
+  // Store the node position so we can calculate distance in the render loop
+  audioNodePositions.set(node.id.toString(), node.position);
 
-  // Create an invisible object to hold audio
-  const audioObj = new THREE.Object3D();
-  audioObj.position.copy(node.position);
-  audioObj.add(positionalAudio);
-  scene.add(audioObj);
-
-  // Start playing (will be silent until context resumes)
+  // Start playing (will be silent until context resumes and user enters)
   audioElement.play().catch(e => console.warn("Audio playback failed:", e));
 }
 
@@ -373,55 +467,83 @@ function createEdges() {
 }
 
 function createDust() {
-  const dustGeo = new THREE.BufferGeometry();
-  const dustPositions = new Float32Array(CONFIG.dustCount * 3);
-
-  // Store hub associations for each dust particle
-  dustHubIndices = new Int32Array(CONFIG.dustCount);
-  dustLocalOffsets = new Float32Array(CONFIG.dustCount * 3);
-
-  // Distribute dust mostly around hubs
   const hubs = graphData.nodes.filter(n => n.type === NodeType.Core || n.type === NodeType.StreamHub);
 
-  for (let i = 0; i < CONFIG.dustCount; i++) {
-    let hubIdx = -1; // -1 means free-floating
-    let spread = 350; // Fill the full bounding sphere
-    let originX = 0, originY = 0, originZ = 0;
+  // We split dust roughly 50/50 between hubs and ambient
+  const totalCount = CONFIG.dustCount;
+  let hubCount = 0;
+  let ambientCount = 0;
 
-    if (Math.random() > 0.5 && hubs.length > 0) {
-      const hub = hubs[Math.floor(Math.random() * hubs.length)];
-      hubIdx = hub.id;
-      originX = hub.position.x;
-      originY = hub.position.y;
-      originZ = hub.position.z;
-      spread = 80;
-    }
-
-    // Random point in sphere (local offset)
-    const u = Math.random();
-    const v = Math.random();
-    const theta = 2 * Math.PI * u;
-    const phi = Math.acos(2 * v - 1);
-    const r = Math.cbrt(Math.random()) * spread;
-
-    const ox = r * Math.sin(phi) * Math.cos(theta);
-    const oy = r * Math.sin(phi) * Math.sin(theta);
-    const oz = r * Math.cos(phi);
-
-    // Store hub index and local offset for per-frame tracking
-    dustHubIndices[i] = hubIdx;
-    dustLocalOffsets[i * 3] = ox;
-    dustLocalOffsets[i * 3 + 1] = oy;
-    dustLocalOffsets[i * 3 + 2] = oz;
-
-    // Initial position = hub origin + offset
-    const pIdx = i * 3;
-    dustPositions[pIdx] = originX + ox;
-    dustPositions[pIdx + 1] = originY + oy;
-    dustPositions[pIdx + 2] = originZ + oz;
+  // First pass to count sizes
+  for (let i = 0; i < totalCount; i++) {
+    if (Math.random() > 0.5 && hubs.length > 0) hubCount++;
+    else ambientCount++;
   }
 
-  dustGeo.setAttribute('position', new THREE.BufferAttribute(dustPositions, 3));
+  // --- Hub Dust ---
+  const hubDustGeo = new THREE.BufferGeometry();
+  const hubDustPositions = new Float32Array(hubCount * 3);
+  hubDustHubIndices = new Int32Array(hubCount);
+  hubDustLocalOffsets = new Float32Array(hubCount * 3);
+
+  // --- Ambient Dust ---
+  const ambientDustGeo = new THREE.BufferGeometry();
+  const ambientDustPositions = new Float32Array(ambientCount * 3);
+  ambientDustOffsets = new Float32Array(ambientCount * 3);
+
+  let hIdx = 0;
+  let aIdx = 0;
+
+  for (let i = 0; i < totalCount; i++) {
+    if (Math.random() > 0.5 && hubs.length > 0) {
+      // Hub Anchored
+      const hub = hubs[Math.floor(Math.random() * hubs.length)];
+
+      const u = Math.random();
+      const v = Math.random();
+      const theta = 2 * Math.PI * u;
+      const phi = Math.acos(2 * v - 1);
+      const r = Math.cbrt(Math.random()) * 80;
+
+      const ox = r * Math.sin(phi) * Math.cos(theta);
+      const oy = r * Math.sin(phi) * Math.sin(theta);
+      const oz = r * Math.cos(phi);
+
+      hubDustHubIndices[hIdx] = hub.id;
+      hubDustLocalOffsets[hIdx * 3] = ox;
+      hubDustLocalOffsets[hIdx * 3 + 1] = oy;
+      hubDustLocalOffsets[hIdx * 3 + 2] = oz;
+
+      hubDustPositions[hIdx * 3] = hub.position.x + ox;
+      hubDustPositions[hIdx * 3 + 1] = hub.position.y + oy;
+      hubDustPositions[hIdx * 3 + 2] = hub.position.z + oz;
+      hIdx++;
+    } else {
+      // Free floating ambient
+      const u = Math.random();
+      const v = Math.random();
+      const theta = 2 * Math.PI * u;
+      const phi = Math.acos(2 * v - 1);
+      const r = Math.cbrt(Math.random()) * 350; // Sphere radius
+
+      const ox = r * Math.sin(phi) * Math.cos(theta);
+      const oy = r * Math.sin(phi) * Math.sin(theta);
+      const oz = r * Math.cos(phi);
+
+      ambientDustOffsets[aIdx * 3] = ox;
+      ambientDustOffsets[aIdx * 3 + 1] = oy;
+      ambientDustOffsets[aIdx * 3 + 2] = oz;
+
+      // Start at origin + offset
+      ambientDustPositions[aIdx * 3] = ox;
+      ambientDustPositions[aIdx * 3 + 1] = oy;
+      ambientDustPositions[aIdx * 3 + 2] = oz;
+      aIdx++;
+    }
+  }
+
+  hubDustGeo.setAttribute('position', new THREE.BufferAttribute(hubDustPositions, 3));
+  ambientDustGeo.setAttribute('position', new THREE.BufferAttribute(ambientDustPositions, 3));
 
   // Use circular points for dust
   const canvas = document.createElement('canvas');
@@ -434,19 +556,33 @@ function createDust() {
   ctx.fill();
   const texture = new THREE.CanvasTexture(canvas);
 
-  const dustMat = new THREE.PointsMaterial({
+  const hubDustMat = new THREE.PointsMaterial({
     size: 1.5,
-    color: CONFIG.dustColor,
+    color: CONFIG.hubDustColor,
     map: texture,
     transparent: true,
-    opacity: CONFIG.dustOpacity,
+    opacity: CONFIG.hubDustOpacity,
     alphaTest: 0.1,
     depthWrite: false,
     blending: THREE.AdditiveBlending
   });
 
-  dustPoints = new THREE.Points(dustGeo, dustMat);
-  scene.add(dustPoints);
+  const ambientDustMat = new THREE.PointsMaterial({
+    size: 1.5,
+    color: CONFIG.ambientDustColor,
+    map: texture,
+    transparent: true,
+    opacity: CONFIG.ambientDustOpacity,
+    alphaTest: 0.1,
+    depthWrite: false,
+    blending: THREE.AdditiveBlending
+  });
+
+  hubDustPoints = new THREE.Points(hubDustGeo, hubDustMat);
+  scene.add(hubDustPoints);
+
+  ambientDustPoints = new THREE.Points(ambientDustGeo, ambientDustMat);
+  scene.add(ambientDustPoints);
 }
 
 function onWindowResize() {
@@ -535,14 +671,23 @@ function updatePhysics(time: number) {
     }
 
     if (!isMatched) {
-      color.setHex(0x111122); // Dimmed out non-matches
+      // Dimmed out non-matches based on theme
+      const dimColor = currentTheme === 'light' ? 0xdddddd : 0x111122;
+      color.setHex(dimColor);
     } else if (i === hoveredNodeId) {
-      color.setHex(0xffffff); // Highlight bright white
+      const highColor = currentTheme === 'light' ? 0x000000 : 0xffffff;
+      color.setHex(highColor);
     } else {
-      color.copy(node.color);
+      if (currentTheme === 'light') {
+        // Monochrome: render nodes as dark grey/black
+        color.copy(node.color).lerp(new THREE.Color(0x222222), 0.7);
+      } else {
+        color.copy(node.color);
+      }
       // Intensify color as it gets larger (pulse > 0)
       if (pulse > 0) {
-        color.lerp(new THREE.Color(0xffffff), pulse / CONFIG.pulseAmplitude * 0.5);
+        const targetHigh = currentTheme === 'light' ? new THREE.Color(0x000000) : new THREE.Color(0xffffff);
+        color.lerp(targetHigh, pulse / CONFIG.pulseAmplitude * 0.5);
       }
     }
     nodeMesh.setColorAt(i, color);
@@ -614,44 +759,55 @@ function updatePhysics(time: number) {
     edgesLine.geometry.attributes.position.needsUpdate = true;
   }
 
-  // Update dust positions to track their parent hub nodes
-  if (dustPoints && dustHubIndices) {
-    const dustPositions = dustPoints.geometry.attributes.position.array as Float32Array;
-    const freeDriftSpeed = 0.002; // Much faster than node drift
-    const freeDriftAmplitude = 8.0;
-    for (let i = 0; i < CONFIG.dustCount; i++) {
-      const hubIdx = dustHubIndices[i];
+  // Update hub dust positions to track their parent hub nodes
+  if (hubDustPoints && hubDustHubIndices) {
+    const positions = hubDustPoints.geometry.attributes.position.array as Float32Array;
+    for (let i = 0; i < hubDustHubIndices.length; i++) {
+      const hubIdx = hubDustHubIndices[i];
       const pIdx = i * 3;
       if (hubIdx >= 0 && hubIdx < graphData.nodes.length) {
-        // Anchored to a hub: position = hub's current position + stored local offset
         const hub = graphData.nodes[hubIdx];
-        dustPositions[pIdx] = hub.position.x + dustLocalOffsets[pIdx];
-        dustPositions[pIdx + 1] = hub.position.y + dustLocalOffsets[pIdx + 1];
-        dustPositions[pIdx + 2] = hub.position.z + dustLocalOffsets[pIdx + 2];
-      } else {
-        // Free-floating: drift using simplex noise for organic movement
-        const baseX = dustLocalOffsets[pIdx];
-        const baseY = dustLocalOffsets[pIdx + 1];
-        const baseZ = dustLocalOffsets[pIdx + 2];
-        const seed = i * 0.1; // Unique per particle
-        const nx = noise3D(baseX * 0.005 + seed, baseY * 0.005, time * freeDriftSpeed);
-        const ny = noise3D(baseY * 0.005, baseZ * 0.005 + seed, time * freeDriftSpeed + 50);
-        const nz = noise3D(baseZ * 0.005 + seed, baseX * 0.005, time * freeDriftSpeed + 100);
-        let px = baseX + nx * freeDriftAmplitude;
-        let py = baseY + ny * freeDriftAmplitude;
-        let pz = baseZ + nz * freeDriftAmplitude;
-        // Clamp within bounding sphere
-        const dist = Math.sqrt(px * px + py * py + pz * pz);
-        if (dist > 340) {
-          const s = 340 / dist;
-          px *= s; py *= s; pz *= s;
-        }
-        dustPositions[pIdx] = px;
-        dustPositions[pIdx + 1] = py;
-        dustPositions[pIdx + 2] = pz;
+        positions[pIdx] = hub.position.x + hubDustLocalOffsets[pIdx];
+        positions[pIdx + 1] = hub.position.y + hubDustLocalOffsets[pIdx + 1];
+        positions[pIdx + 2] = hub.position.z + hubDustLocalOffsets[pIdx + 2];
       }
     }
-    dustPoints.geometry.attributes.position.needsUpdate = true;
+    hubDustPoints.geometry.attributes.position.needsUpdate = true;
+  }
+
+  // Update ambient dust to drift organically
+  if (ambientDustPoints && ambientDustOffsets) {
+    const positions = ambientDustPoints.geometry.attributes.position.array as Float32Array;
+    const freeDriftSpeed = 0.002;
+    const freeDriftAmplitude = 8.0;
+
+    for (let i = 0; i < ambientDustOffsets.length / 3; i++) {
+      const pIdx = i * 3;
+      const baseX = ambientDustOffsets[pIdx];
+      const baseY = ambientDustOffsets[pIdx + 1];
+      const baseZ = ambientDustOffsets[pIdx + 2];
+      const seed = i * 0.1; // Unique per particle
+
+      const nx = noise3D(baseX * 0.005 + seed, baseY * 0.005, time * freeDriftSpeed);
+      const ny = noise3D(baseY * 0.005, baseZ * 0.005 + seed, time * freeDriftSpeed + 50);
+      const nz = noise3D(baseZ * 0.005 + seed, baseX * 0.005, time * freeDriftSpeed + 100);
+
+      let px = baseX + nx * freeDriftAmplitude;
+      let py = baseY + ny * freeDriftAmplitude;
+      let pz = baseZ + nz * freeDriftAmplitude;
+
+      // Clamp within bounding sphere (approx radius 340)
+      const dist = Math.sqrt(px * px + py * py + pz * pz);
+      if (dist > 340) {
+        const s = 340 / dist;
+        px *= s; py *= s; pz *= s;
+      }
+
+      positions[pIdx] = px;
+      positions[pIdx + 1] = py;
+      positions[pIdx + 2] = pz;
+    }
+    ambientDustPoints.geometry.attributes.position.needsUpdate = true;
   }
 
   // Edge breathing effect
@@ -735,19 +891,6 @@ function updateProximityLabels() {
   });
 }
 
-function updateAudioFades() {
-  // Smoothly lerp each audio element's volume toward its fade target
-  activeAudioElements.forEach(el => {
-    const nodeId = el.dataset.nodeId || '';
-    const target = audioFadeTargets.get(nodeId) ?? 1.0;
-    const current = el.volume;
-    if (Math.abs(current - target) > 0.005) {
-      el.volume = current + (target - current) * 0.03; // Smooth fade ~1-2 seconds
-    } else {
-      el.volume = target;
-    }
-  });
-}
 
 function exitFocusMode() {
   focusedNodeId = null;
@@ -840,42 +983,70 @@ function animate(time: number) {
   updatePhysics(time);
   updateInteraction();
   updateProximityLabels();
-  updateAudioFades();
 
-  if (audioListener) {
-    let computedTargetVolume = 0.0;
+  // --- Per-element spatial volume ---
+  // Instead of Web Audio API positional audio, manually compute volume
+  // for each stream based on camera distance to its node.
+  {
+    let globalEnvelope = 0.0;
 
     if (isAudioActive && !isMuted) {
       if (focusedNodeId !== null) {
-        // In focus mode, bypass distance drop-off for master volume
-        computedTargetVolume = targetMasterVolume;
+        globalEnvelope = targetMasterVolume;
       } else {
-        // Normal global spatial mixing
-        const distance = camera.position.length();
-
-        // Calculate multiplier based on camera zoom relative to constellation
-        // Start fading much further out (500) and reach max deeper in (150)
-        if (distance < 150) {
-          computedTargetVolume = targetMasterVolume; // Fully inside, maximum volume
-        } else if (distance > 500) {
-          computedTargetVolume = 0.0; // Fully outside bounds
+        const camDist = camera.position.length();
+        if (camDist < 150) {
+          globalEnvelope = targetMasterVolume;
+        } else if (camDist > 500) {
+          globalEnvelope = 0.0;
         } else {
-          // Fade between 150 and 500 with a smooth easing function
-          let factor = 1.0 - ((distance - 150) / 350);
-          factor = factor * factor * (3 - 2 * factor); // smoothstep mapping for organic feel
-          computedTargetVolume = targetMasterVolume * factor;
+          let f = 1.0 - ((camDist - 150) / 350);
+          f = f * f * (3 - 2 * f);
+          globalEnvelope = targetMasterVolume * f;
         }
       }
-    } else {
-      computedTargetVolume = 0.0;
     }
 
-    if (Math.abs(currentMasterVolume - computedTargetVolume) > 0.001) {
-      currentMasterVolume += (computedTargetVolume - currentMasterVolume) * 0.005; // Much slower fade lerp (approx 3-5 seconds depending on framerate)
+    // Smooth the global envelope
+    if (Math.abs(currentMasterVolume - globalEnvelope) > 0.001) {
+      currentMasterVolume += (globalEnvelope - currentMasterVolume) * 0.005;
     } else {
-      currentMasterVolume = computedTargetVolume;
+      currentMasterVolume = globalEnvelope;
     }
-    audioListener.setMasterVolume(currentMasterVolume);
+
+    // Apply per-element spatial volume
+    activeAudioElements.forEach(el => {
+      const nodeId = el.dataset.nodeId || '';
+      const nodePos = audioNodePositions.get(nodeId);
+
+      // Focus-mode fade target
+      const fadeTarget = audioFadeTargets.get(nodeId) ?? 1.0;
+      // Smooth fade toward target
+      const currentFade = el.volume;
+      let newFade = currentFade;
+      if (Math.abs(currentFade - fadeTarget) > 0.005) {
+        newFade = currentFade + (fadeTarget - currentFade) * 0.03;
+      } else {
+        newFade = fadeTarget;
+      }
+
+      // Distance-based attenuation (generous range so streams overlap)
+      let spatialGain = 1.0;
+      if (nodePos) {
+        const dist = camera.position.distanceTo(nodePos);
+        const refDist = 200;  // Full volume within this range
+        const maxDist = 800;  // Silent beyond this range
+        if (dist > maxDist) {
+          spatialGain = 0.0;
+        } else if (dist > refDist) {
+          // Smooth squared falloff for a gentle, overlapping mix
+          const t = 1.0 - (dist - refDist) / (maxDist - refDist);
+          spatialGain = t * t;
+        }
+      }
+
+      el.volume = Math.max(0, Math.min(1, currentMasterVolume * spatialGain * newFade));
+    });
   }
 
   if (isFlying) {

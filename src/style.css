@@ -51,34 +51,41 @@ canvas {
 
 /* Re-enable pointer events for specific UI elements */
 #search-container,
-#sources-btn,
+#ui-buttons-top-left,
 #volume-control,
 #sources-panel {
   pointer-events: auto;
 }
 
-/* --- Tooltip --- */
+/* --- Tooltips and Overlays --- */
 #tooltip {
   position: absolute;
-  top: 0;
-  left: 0;
-  padding: 6px 10px;
-  background: rgba(255, 255, 255, 0.9);
-  color: #333;
-  border: 1px solid #ccc;
-  border-radius: 4px;
-  font-size: 12px;
+  background: rgba(7, 11, 25, 0.9);
+  color: #fff;
+  padding: 10px 15px;
+  border-radius: 6px;
+  border: 1px solid #4488ff;
+  font-size: 14px;
   pointer-events: none;
-  transform: translate(15px, 15px);
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
-  transition: opacity 0.2s ease-out;
-  z-index: 10;
+  transform: translate(-50%, -100%);
+  margin-top: -15px;
   white-space: nowrap;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.6), 0 0 10px rgba(68, 136, 255, 0.3);
+  backdrop-filter: blur(4px);
+  z-index: 10;
+  transition: opacity 0.2s ease, transform 0.2s ease, top 0.1s linear, left 0.1s linear;
+}
+
+body.light-theme #tooltip {
+  background: rgba(255, 255, 255, 0.95);
+  color: #222;
+  border: 1px solid #ccc;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.1);
 }
 
 #tooltip.hidden {
   opacity: 0;
-  display: none;
+  transform: translate(-50%, -90%);
 }
 
 /* --- Search --- */
@@ -86,13 +93,21 @@ canvas {
   position: absolute;
   top: 20px;
   right: 20px;
-  background: rgba(7, 11, 25, 0.85);
-  border: 1px solid #4488ff;
+  background: rgba(7, 11, 25, 0.5);
+  border: 1px solid rgba(68, 136, 255, 0.3);
   border-radius: 8px;
   padding: 10px;
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5), 0 0 10px rgba(68, 136, 255, 0.2);
-  backdrop-filter: blur(5px);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3), 0 0 10px rgba(68, 136, 255, 0.15);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
   z-index: 20;
+  transition: background 0.3s ease, border-color 0.3s ease, box-shadow 0.3s ease;
+}
+
+body.light-theme #search-container {
+  background: rgba(255, 255, 255, 0.45);
+  border: 1px solid rgba(0, 0, 0, 0.1);
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.06);
 }
 
 #search-input {
@@ -103,10 +118,19 @@ canvas {
   padding: 8px 12px;
   width: 250px;
   outline: none;
+  transition: color 0.3s ease;
+}
+
+body.light-theme #search-input {
+  color: #222;
 }
 
 #search-input::placeholder {
   color: #88aadd;
+}
+
+body.light-theme #search-input::placeholder {
+  color: #999;
 }
 
 #search-results {
@@ -128,13 +152,23 @@ canvas {
   font-size: 14px;
   cursor: pointer;
   border-bottom: 1px solid rgba(255, 255, 255, 0.05);
-  transition: background 0.2s, padding-left 0.2s;
+  transition: background 0.2s, padding-left 0.2s, color 0.3s ease;
+}
+
+body.light-theme #search-results li {
+  color: #333;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.05);
 }
 
 #search-results li:hover {
   background: rgba(68, 136, 255, 0.2);
   padding-left: 15px;
   color: #00e5ff;
+}
+
+body.light-theme #search-results li:hover {
+  background: rgba(0, 0, 0, 0.05);
+  color: #000;
 }
 
 /* Custom Scrollbar for results */
@@ -151,30 +185,46 @@ canvas {
   border-radius: 3px;
 }
 
-/* --- Sources Button --- */
+/* --- UI Buttons --- */
 .ui-button {
-  background: rgba(7, 11, 25, 0.85);
-  border: 1px solid #4488ff;
+  background: rgba(7, 11, 25, 0.5);
+  border: 1px solid rgba(68, 136, 255, 0.3);
   color: #fff;
   font-size: 14px;
   padding: 8px 16px;
   border-radius: 8px;
   cursor: pointer;
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5), 0 0 10px rgba(68, 136, 255, 0.2);
-  backdrop-filter: blur(5px);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3), 0 0 10px rgba(68, 136, 255, 0.15);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
   transition: all 0.2s ease;
+}
+
+body.light-theme .ui-button {
+  background: rgba(255, 255, 255, 0.45);
+  border: 1px solid rgba(0, 0, 0, 0.1);
+  color: #333;
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.06);
 }
 
 .ui-button:hover {
   background: rgba(68, 136, 255, 0.2);
+  transform: translateY(-2px);
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5), 0 0 15px rgba(68, 136, 255, 0.4);
 }
 
-#sources-btn {
+body.light-theme .ui-button:hover {
+  background: rgba(0, 0, 0, 0.05);
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.12);
+}
+
+#ui-buttons-top-left {
   position: absolute;
   top: 20px;
   left: 20px;
   z-index: 20;
+  display: flex;
+  gap: 10px;
 }
 
 /* --- Sources Panel --- */
@@ -193,7 +243,13 @@ canvas {
   z-index: 20;
   display: flex;
   flex-direction: column;
-  transition: opacity 0.3s ease, transform 0.3s ease;
+  transition: opacity 0.3s ease, transform 0.3s ease, background 0.3s ease, border-color 0.3s ease, box-shadow 0.3s ease;
+}
+
+body.light-theme #sources-panel {
+  background: rgba(255, 255, 255, 0.95);
+  border: 1px solid #ccc;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
 }
 
 #sources-panel.hidden {
@@ -201,6 +257,40 @@ canvas {
   transform: translateY(-10px);
   pointer-events: none;
 }
+
+#sources-panel h3 {
+  margin: 0 0 10px 0;
+  color: #4488ff;
+  font-size: 16px;
+  border-bottom: 1px solid rgba(68, 136, 255, 0.2);
+  padding-bottom: 8px;
+  transition: color 0.3s ease, border-color 0.3s ease;
+}
+
+body.light-theme #sources-panel h3 {
+  color: #333;
+  border-bottom: 1px solid #ddd;
+}
+
+.theme-btn {
+  background: rgba(68, 136, 255, 0.1);
+  border: 1px solid rgba(68, 136, 255, 0.3);
+  padding: 6px 10px;
+  font-size: 12px;
+}
+
+body.light-theme .theme-btn {
+  background: rgba(0, 0, 0, 0.03);
+  border: 1px solid #ccc;
+  color: #333;
+}
+
+body.light-theme .theme-btn:hover {
+  background: rgba(0, 0, 0, 0.06);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+}
+
+
 
 #sources-panel h3 {
   margin: 0 0 10px 0;
@@ -224,12 +314,21 @@ canvas {
   cursor: pointer;
   font-size: 14px;
   border-radius: 4px;
-  transition: background 0.2s;
+  transition: background 0.2s, color 0.3s ease;
+}
+
+body.light-theme #sources-list li {
+  color: #333;
 }
 
 #sources-list li:hover {
   background: rgba(68, 136, 255, 0.2);
   color: #00e5ff;
+}
+
+body.light-theme #sources-list li:hover {
+  background: rgba(0, 0, 0, 0.05);
+  color: #000;
 }
 
 #sources-list::-webkit-scrollbar {
@@ -240,9 +339,17 @@ canvas {
   background: rgba(0, 0, 0, 0.2);
 }
 
+body.light-theme #sources-list::-webkit-scrollbar-track {
+  background: rgba(0, 0, 0, 0.05);
+}
+
 #sources-list::-webkit-scrollbar-thumb {
   background: rgba(68, 136, 255, 0.5);
   border-radius: 2px;
+}
+
+body.light-theme #sources-list::-webkit-scrollbar-thumb {
+  background: rgba(136, 170, 204, 0.5);
 }
 
 /* --- Volume Control --- */
@@ -250,16 +357,24 @@ canvas {
   position: absolute;
   bottom: 20px;
   right: 20px;
-  background: rgba(7, 11, 25, 0.6);
-  border: 1px solid rgba(68, 136, 255, 0.4);
+  background: rgba(7, 11, 25, 0.5);
+  border: 1px solid rgba(68, 136, 255, 0.3);
   border-radius: 20px;
   padding: 8px 15px;
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5), 0 0 10px rgba(68, 136, 255, 0.1);
-  backdrop-filter: blur(5px);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3), 0 0 10px rgba(68, 136, 255, 0.1);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
   z-index: 20;
   display: flex;
   align-items: center;
   gap: 12px;
+  transition: background 0.3s ease, border-color 0.3s ease;
+}
+
+body.light-theme #volume-control {
+  background: rgba(255, 255, 255, 0.45);
+  border-color: rgba(0, 0, 0, 0.1);
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.06);
 }
 
 #mute-btn {
@@ -272,7 +387,11 @@ canvas {
   cursor: pointer;
   padding: 4px 8px;
   border-radius: 4px;
-  transition: color 0.2s, text-shadow 0.2s;
+  transition: color 0.2s, background 0.2s;
+}
+
+body.light-theme #mute-btn {
+  color: #555;
 }
 
 #mute-btn:hover {
@@ -315,6 +434,15 @@ input[type=range]::-webkit-slider-runnable-track {
   cursor: pointer;
   background: rgba(136, 170, 221, 0.4);
   border-radius: 1px;
+}
+
+body.light-theme input[type=range]::-webkit-slider-thumb {
+  background: #333;
+  box-shadow: 0 0 8px rgba(0, 0, 0, 0.3);
+}
+
+body.light-theme input[type=range]::-webkit-slider-runnable-track {
+  background: rgba(0, 0, 0, 0.25);
 }
 
 /* --- Landing Page --- */
