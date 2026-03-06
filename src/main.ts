@@ -97,8 +97,13 @@ const audioNodePositions: Map<string, THREE.Vector3> = new Map();
 
 const nodeLabels: Map<number, HTMLDivElement> = new Map();
 
-// Audio fade targets for smooth transitions
+// Focus-mode fade targets for smooth transitions
 const audioFadeTargets: Map<string, number> = new Map();
+
+// --- Frequency Analysers ---
+const audioAnalysers: Map<string, AnalyserNode> = new Map();
+const audioGainNodes: Map<string, GainNode> = new Map();
+const audioDataArrays: Map<string, Uint8Array<ArrayBuffer>> = new Map();
 
 // Fly-to Animation State
 let isFlying = false;
@@ -429,21 +434,39 @@ function createBounds() {
 }
 
 function setupStreamingAudio(node: GraphNode) {
-  // Create a standard HTML Audio element — no crossOrigin needed since we
-  // do NOT route through Web Audio API (createMediaElementSource requires CORS).
+  // Create HTML Audio element. CrossOrigin anonymous is required for proxying.
   const audioElement = new Audio(node.streamUrl);
+  audioElement.crossOrigin = "anonymous";
   audioElement.loop = true;
-  audioElement.volume = 0; // Start silent, animate() will set volume based on distance
 
-  // Tag element with node ID for focus muting / distance volume
+  // We handle volume entirely through Web Audio GainNodes now,
+  // but we still want the media element to not blast at 100% while WebAudio initializes
+  audioElement.volume = 1.0;
+
+  // Tag element with node ID
   audioElement.dataset.nodeId = node.id.toString();
 
-  activeAudioElements.push(audioElement);
+  // Create Web Audio nodes
+  const source = audioListener.context.createMediaElementSource(audioElement);
+  const analyser = audioListener.context.createAnalyser();
+  analyser.fftSize = 256; // 128 frequency bins
+  const gainNode = audioListener.context.createGain();
+  gainNode.gain.value = 0; // Start silent
 
-  // Store the node position so we can calculate distance in the render loop
+  // Connect the pipeline: Source -> Analyser -> Gain -> Global Audio Listener Dest
+  source.connect(analyser);
+  analyser.connect(gainNode);
+  gainNode.connect(audioListener.getInput());
+
+  // Store references for the render loop
+  audioAnalysers.set(node.id.toString(), analyser);
+  audioGainNodes.set(node.id.toString(), gainNode);
+  audioDataArrays.set(node.id.toString(), new Uint8Array(analyser.frequencyBinCount));
+
+  activeAudioElements.push(audioElement);
   audioNodePositions.set(node.id.toString(), node.position);
 
-  // Start playing (will be silent until context resumes and user enters)
+  // Note: play() won't emit sound until context resumes and gain goes up
   audioElement.play().catch(e => console.warn("Audio playback failed:", e));
 }
 
@@ -652,8 +675,37 @@ function updatePhysics(time: number) {
     node.position.add(node.velocity);
 
     // Dynamic scale pulsing
-    const pulse = Math.sin(time * CONFIG.pulseSpeed + node.id) * CONFIG.pulseAmplitude;
-    const dynamicSize = Math.max(0.1, node.size + pulse);
+    let audioPulse = 0;
+
+    if (node.type === NodeType.StreamHub) {
+      const analyser = audioAnalysers.get(node.id.toString());
+      const dataArray = audioDataArrays.get(node.id.toString());
+
+      if (analyser && dataArray) {
+        analyser.getByteFrequencyData(dataArray);
+
+        // Sum lower-mid frequencies (bass/vocals)
+        let sum = 0;
+        const startBin = 2; // skip sub-bass noise
+        const endBin = 30;  // out of 128 bins
+        for (let b = startBin; b < endBin; b++) {
+          sum += dataArray[b];
+        }
+
+        // Average and normalize 0-1
+        const avg = sum / (endBin - startBin);
+        const normalized = avg / 255.0;
+
+        // Emphasize spikes using a power curve, scale up
+        audioPulse = Math.pow(normalized, 1.5) * 2.5;
+      }
+    } else {
+      // Default slow idle pulse for non-hubs
+      audioPulse = Math.sin(time * CONFIG.pulseSpeed + node.id) * CONFIG.pulseAmplitude;
+      if (audioPulse < 0) audioPulse = 0;
+    }
+
+    const dynamicSize = Math.max(0.1, node.size + audioPulse);
 
     // Update instance matrix
     dummy.position.copy(node.position);
@@ -684,10 +736,13 @@ function updatePhysics(time: number) {
       } else {
         color.copy(node.color);
       }
-      // Intensify color as it gets larger (pulse > 0)
-      if (pulse > 0) {
+
+      // Intensify color as it gets larger (pulse)
+      if (audioPulse > 0.1) {
+        // Map audio pulse (0 to ~2.5) to a lerp factor (0 to 0.8 max)
+        const flashIntensity = Math.min(0.8, audioPulse * 0.4);
         const targetHigh = currentTheme === 'light' ? new THREE.Color(0x000000) : new THREE.Color(0xffffff);
-        color.lerp(targetHigh, pulse / CONFIG.pulseAmplitude * 0.5);
+        color.lerp(targetHigh, flashIntensity);
       }
     }
     nodeMesh.setColorAt(i, color);
@@ -759,17 +814,53 @@ function updatePhysics(time: number) {
     edgesLine.geometry.attributes.position.needsUpdate = true;
   }
 
-  // Update hub dust positions to track their parent hub nodes
+  // Update hub dust positions to track their parent hub nodes, with physical high-frequency expansion
   if (hubDustPoints && hubDustHubIndices) {
     const positions = hubDustPoints.geometry.attributes.position.array as Float32Array;
+
+    // First, calculate a high-frequency (treble) explosion factor per hub
+    const hubTrebleFactors: Map<number, number> = new Map();
+    for (const hub of graphData.nodes) {
+      if (hub.type === NodeType.StreamHub) {
+        const dataArray = audioDataArrays.get(hub.id.toString());
+        if (dataArray) {
+          let sum = 0;
+          // High frequencies are roughly bins 50 to 100 out of 128
+          for (let b = 50; b < 100; b++) {
+            sum += dataArray[b];
+          }
+          const avg = sum / 50;
+          // Scale it to a 1.0 to 1.5 multiplier based on sharpness of sounds
+          const factor = 1.0 + (avg / 255.0) * 0.8;
+          hubTrebleFactors.set(hub.id, factor);
+        }
+      }
+    }
+
     for (let i = 0; i < hubDustHubIndices.length; i++) {
       const hubIdx = hubDustHubIndices[i];
       const pIdx = i * 3;
       if (hubIdx >= 0 && hubIdx < graphData.nodes.length) {
         const hub = graphData.nodes[hubIdx];
-        positions[pIdx] = hub.position.x + hubDustLocalOffsets[pIdx];
-        positions[pIdx + 1] = hub.position.y + hubDustLocalOffsets[pIdx + 1];
-        positions[pIdx + 2] = hub.position.z + hubDustLocalOffsets[pIdx + 2];
+
+        let multiplier = hubTrebleFactors.get(hub.id) || 1.0;
+
+        // Add a continuous swirling motion using time based on particle index
+        const swirlAngle = time * CONFIG.dustSwirlSpeed * multiplier;
+        const ox = hubDustLocalOffsets[pIdx];
+        const oy = hubDustLocalOffsets[pIdx + 1];
+        const oz = hubDustLocalOffsets[pIdx + 2];
+
+        // Rotate the offset around Y axis
+        const cosA = Math.cos(swirlAngle);
+        const sinA = Math.sin(swirlAngle);
+        const rx = ox * cosA - oz * sinA;
+        const rz = ox * sinA + oz * cosA;
+
+        // Apply the physical burst multiplier pushing particles outward from center
+        positions[pIdx] = hub.position.x + (rx * multiplier);
+        positions[pIdx + 1] = hub.position.y + (oy * multiplier);
+        positions[pIdx + 2] = hub.position.z + (rz * multiplier);
       }
     }
     hubDustPoints.geometry.attributes.position.needsUpdate = true;
@@ -1018,11 +1109,16 @@ function animate(time: number) {
     activeAudioElements.forEach(el => {
       const nodeId = el.dataset.nodeId || '';
       const nodePos = audioNodePositions.get(nodeId);
+      const gainNode = audioGainNodes.get(nodeId);
 
       // Focus-mode fade target
       const fadeTarget = audioFadeTargets.get(nodeId) ?? 1.0;
+
+      // We use the GainNode for volume now, instead of the HTML element
+      if (!gainNode) return;
+
       // Smooth fade toward target
-      const currentFade = el.volume;
+      const currentFade = gainNode.gain.value;
       let newFade = currentFade;
       if (Math.abs(currentFade - fadeTarget) > 0.005) {
         newFade = currentFade + (fadeTarget - currentFade) * 0.03;
@@ -1045,7 +1141,8 @@ function animate(time: number) {
         }
       }
 
-      el.volume = Math.max(0, Math.min(1, currentMasterVolume * spatialGain * newFade));
+      // Apply the computed smooth gain
+      gainNode.gain.value = Math.max(0, Math.min(1, currentMasterVolume * spatialGain * newFade));
     });
   }
 

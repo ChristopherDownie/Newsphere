@@ -120,14 +120,14 @@ export function generateGraph(): GraphData {
 
     // Mock Data Arrays
     const outlets = [
-        { name: "NPR Live", url: "https://npr-ice.streamguys1.com/live.mp3" },
-        { name: "Bloomberg Radio", url: "https://playerservices.streamtheworld.com/api/livestream-redirect/WRCAAM.mp3" },
-        { name: "WNYC FM", url: "https://fm939.wnyc.org/wnycfm" },
-        { name: "WQXR", url: "https://stream.wqxr.org/wqxr" },
-        { name: "WQXR New Sounds", url: "https://stream.wqxr.org/wqxr-web" },
-        { name: "KQED Public Radio", url: "https://streams.kqed.org/kqedradio" },
-        { name: "NPR News", url: "https://npr-ice.streamguys1.com/live.mp3?_=2" },
-        { name: "NPR Talk", url: "https://npr-ice.streamguys1.com/live.mp3?_=3" },
+        { name: "NPR Live", url: "/api/npr-live" },
+        { name: "Bloomberg Radio", url: "/api/bloomberg" },
+        { name: "WNYC FM", url: "/api/wnyc" },
+        { name: "WQXR", url: "/api/wqxr" },
+        { name: "WQXR New Sounds", url: "/api/wqxr-newsounds" },
+        { name: "KQED Public Radio", url: "/api/kqed" },
+        { name: "NPR News", url: "/api/npr-news" },
+        { name: "NPR Talk", url: "/api/npr-talk" },
     ];
 
     const headlinePrefixes = [
