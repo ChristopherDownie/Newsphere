@@ -77,8 +77,9 @@ export class YouTubePlayerManager {
         // Create hidden container for YouTube iframes
         this.container = document.createElement('div');
         this.container.id = 'yt-players-container';
+        // A perfectly safe invisible anchor that won't clip fixed descendants in any browser
         this.container.style.cssText =
-            'position:fixed;top:-9999px;left:-9999px;width:1px;height:1px;overflow:hidden;pointer-events:none;opacity:0;';
+            'position:absolute;top:0;left:0;width:0;height:0;overflow:visible;pointer-events:none;z-index:50;';
         document.body.appendChild(this.container);
     }
 
@@ -316,6 +317,39 @@ export class YouTubePlayerManager {
             }
         }
         return null;
+    }
+
+    /**
+     * Return iframe to the hidden container and reset its size.
+     */
+    resetIframe(nodeId: string): void {
+        const managed = this.players.get(nodeId);
+        if (managed && managed.ready && managed.player) {
+            try {
+                const iframe = managed.player.getIframe();
+                const container = document.getElementById(managed.containerId);
+                if (iframe && container && iframe.parentElement !== container) {
+                    container.appendChild(iframe);
+                }
+            } catch {
+                // ignore
+            }
+        }
+    }
+
+    /**
+     * Force a specific player to resume playback.
+     * Useful after moving the iframe to a new DOM parent.
+     */
+    playSource(nodeId: string): void {
+        const managed = this.players.get(nodeId);
+        if (managed && managed.ready && managed.player) {
+            try {
+                managed.player.playVideo();
+            } catch {
+                // ignore
+            }
+        }
     }
 
     /**

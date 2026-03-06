@@ -106,7 +106,24 @@
       <ul id="sources-list"></ul>
     </div>
 
-    <button id="focus-exit-btn" class="hidden">✕ Exit Focus</button>
+    <!-- Video Stream Panel -->
+    <div id="video-panel-container" class="hidden">
+      <div class="video-panel-header">
+        <h3 id="video-panel-title">Live Stream</h3>
+        <div class="video-panel-controls">
+          <button id="expand-video-btn" title="Expand">⛶</button>
+          <button id="close-video-btn">✕</button>
+        </div>
+      </div>
+      <div id="video-wrapper">
+        <!-- The YT iframe will be moved here -->
+      </div>
+    </div>
+
+    <div id="focus-buttons-container" class="hidden">
+      <button id="watch-stream-btn">▶ Watch Stream</button>
+      <button id="focus-exit-btn">✕ Exit Focus</button>
+    </div>
     <div id="tooltip" class="hidden"></div>
   </div>
 

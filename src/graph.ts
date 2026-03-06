@@ -30,6 +30,8 @@ export interface GraphData {
     edges: Edge[];
 }
 
+export const BOUNDS_RADIUS = 340; // Must stay within the visual bounding sphere (350)
+
 export const GRAPH_CONFIG = {
     streamHubCountMin: 18,
     streamHubCountMax: 18, // Matches the number of real outlets
@@ -208,6 +210,11 @@ export function generateGraph(): GraphData {
             const sigma = GRAPH_CONFIG.clusterRadius * GRAPH_CONFIG.clusterSigma;
             const localOffset = gaussianRadialOffset(sigma, GRAPH_CONFIG.clusterRadius);
             const pos = hubNode.position.clone().add(localOffset);
+
+            // Clamp within bounding sphere so no node escapes
+            if (pos.length() > BOUNDS_RADIUS) {
+                pos.normalize().multiplyScalar(BOUNDS_RADIUS);
+            }
 
             // Long tail size distribution: many small, few larger
             const szT = Math.pow(Math.random(), 4); // Skew towards 0

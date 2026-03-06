@@ -866,36 +866,243 @@ body.light-theme input[type=range]::-webkit-slider-runnable-track {
   pointer-events: none;
 }
 
-/* --- Focus Mode Exit Button --- */
-#focus-exit-btn {
+/* --- Focus & Overlay Buttons --- */
+#focus-buttons-container {
   position: absolute;
-  bottom: 80px;
+  bottom: 30px;
   left: 50%;
   transform: translateX(-50%);
-  background: rgba(7, 11, 25, 0.85);
-  border: 1px solid rgba(255, 34, 102, 0.5);
-  color: #ff2266;
-  font-size: 13px;
-  font-weight: 600;
-  padding: 10px 24px;
-  border-radius: 20px;
-  cursor: pointer;
-  z-index: 30;
-  pointer-events: auto;
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.6), 0 0 12px rgba(255, 34, 102, 0.15);
-  backdrop-filter: blur(8px);
-  transition: all 0.3s ease;
-  letter-spacing: 1px;
-  text-transform: uppercase;
+  display: flex;
+  gap: 15px;
+  z-index: 20;
+  animation: fadeSlideUp 0.4s ease-out;
 }
 
+#focus-buttons-container.hidden {
+  display: none;
+}
+
+@keyframes fadeSlideUp {
+  from { opacity: 0; transform: translateX(-50%) translateY(20px); }
+  to   { opacity: 1; transform: translateX(-50%) translateY(0); }
+}
+
+#watch-stream-btn, #focus-exit-btn {
+  background: rgba(7, 11, 25, 0.7);
+  border: 1px solid rgba(68, 136, 255, 0.5);
+  color: #fff;
+  font-size: 15px;
+  font-weight: 500;
+  padding: 12px 24px;
+  border-radius: 30px;
+  cursor: pointer;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5), 0 0 15px rgba(68, 136, 255, 0.2);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
+  pointer-events: auto;
+  letter-spacing: 0.5px;
+}
+
+body.light-theme #watch-stream-btn, body.light-theme #focus-exit-btn {
+  background: rgba(255, 255, 255, 0.8);
+  color: #222;
+  border-color: rgba(0, 0, 0, 0.15);
+  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
+}
+
+#watch-stream-btn:hover, #focus-exit-btn:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 6px 25px rgba(0, 0, 0, 0.6), 0 0 20px rgba(68, 136, 255, 0.5);
+}
+
+body.light-theme #watch-stream-btn:hover, body.light-theme #focus-exit-btn:hover {
+  background: rgba(0, 0, 0, 0.05);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.15);
+}
+
+#watch-stream-btn {
+  border-color: #00e5cc;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5), 0 0 15px rgba(0, 229, 204, 0.2);
+}
+#watch-stream-btn:hover {
+  background: rgba(0, 229, 204, 0.15);
+  box-shadow: 0 6px 25px rgba(0, 0, 0, 0.6), 0 0 20px rgba(0, 229, 204, 0.5);
+}
+
+#focus-exit-btn {
+  border-color: rgba(255, 34, 102, 0.5);
+}
 #focus-exit-btn:hover {
   background: rgba(255, 34, 102, 0.15);
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.6), 0 0 20px rgba(255, 34, 102, 0.3);
+  box-shadow: 0 6px 25px rgba(0, 0, 0, 0.6), 0 0 20px rgba(255, 34, 102, 0.4);
 }
 
-#focus-exit-btn.hidden {
+/* --- Video Stream Panel --- */
+#video-panel-container {
+  position: absolute;
+  /* Default: positioned by JS near the hub */
+  width: 420px;
+  height: 280px;
+  background: rgba(10, 15, 30, 0.75);
+  border: 1px solid rgba(100, 150, 255, 0.35);
+  border-radius: 12px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.7), 0 0 25px rgba(68, 136, 255, 0.12);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  z-index: 50;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  opacity: 1;
+  pointer-events: auto;
+  transition: width 0.4s cubic-bezier(0.16, 1, 0.3, 1),
+              height 0.4s cubic-bezier(0.16, 1, 0.3, 1),
+              top 0.4s cubic-bezier(0.16, 1, 0.3, 1),
+              left 0.4s cubic-bezier(0.16, 1, 0.3, 1),
+              opacity 0.35s ease,
+              border-radius 0.4s ease;
+  animation: panelSlideIn 0.45s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes panelSlideIn {
+  from {
+    opacity: 0;
+    transform: scale(0.88) translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+/* Expanded state — fullscreen-ish */
+#video-panel-container.expanded {
+  width: 80vw !important;
+  max-width: 1200px;
+  height: 75vh !important;
+  max-height: 800px;
+  top: 50% !important;
+  left: 50% !important;
+  transform: translate(-50%, -50%);
+  border-radius: 16px;
+}
+
+body.light-theme #video-panel-container {
+  background: rgba(250, 250, 250, 0.8);
+  border: 1px solid rgba(0, 0, 0, 0.12);
+  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.12);
+}
+
+#video-panel-container.hidden {
   opacity: 0;
   pointer-events: none;
-  transform: translateX(-50%) translateY(10px);
+  animation: none;
+  transform: scale(0.92);
+}
+
+.video-panel-header {
+  padding: 8px 12px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(0, 0, 0, 0.25);
+  min-height: 36px;
+  cursor: grab;
+}
+
+body.light-theme .video-panel-header {
+  background: rgba(255, 255, 255, 0.4);
+  border-bottom: 1px solid rgba(0, 0, 0, 0.05);
+}
+
+#video-panel-title {
+  margin: 0;
+  font-size: 0.85rem;
+  color: rgba(255, 255, 255, 0.85);
+  font-weight: 400;
+  letter-spacing: 0.3px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 250px;
+}
+
+body.light-theme #video-panel-title {
+  color: #333;
+}
+
+.video-panel-controls {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
+#close-video-btn, #expand-video-btn {
+  background: rgba(255, 255, 255, 0.08);
+  border: none;
+  color: rgba(255, 255, 255, 0.7);
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.2s, color 0.2s;
+}
+
+body.light-theme #close-video-btn, body.light-theme #expand-video-btn {
+  background: rgba(0, 0, 0, 0.05);
+  color: #555;
+}
+
+#expand-video-btn:hover {
+  background: rgba(68, 136, 255, 0.3);
+  color: #fff;
+}
+
+#close-video-btn:hover {
+  background: rgba(255, 50, 50, 0.5);
+  color: #fff;
+}
+
+#video-wrapper {
+  flex-grow: 1;
+  position: relative;
+  background: #000;
+  width: 100%;
+  min-height: 0;
+}
+
+#video-wrapper iframe {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100% !important;
+  height: 100% !important;
+  border: none;
+}
+
+/* Hide background players seamlessly */
+#yt-players-container iframe {
+  opacity: 0;
+  pointer-events: none;
+  border: none;
+  transition: opacity 0.3s ease;
+}
+
+/* --- Canvas Blur (only when expanded) --- */
+#glcanvas {
+  transition: filter 0.6s ease;
+}
+
+#glcanvas.bg-blurred {
+  filter: blur(12px) brightness(0.7);
+}
+
+body.light-theme #glcanvas.bg-blurred {
+  filter: blur(12px) brightness(0.9);
 }

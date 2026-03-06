@@ -2,7 +2,7 @@ import './style.css';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { createNoise3D } from 'simplex-noise';
-import { generateGraph, NodeType } from './graph';
+import { generateGraph, NodeType, BOUNDS_RADIUS } from './graph';
 import type { GraphData, GraphNode } from './graph';
 import { AudioVisualizer } from './audioVisualizer';
 import { initLandingParticles, stopLandingParticles } from './landingParticles';
@@ -80,12 +80,23 @@ const sourcesBtn = document.getElementById('sources-btn') as HTMLButtonElement;
 const sourcesPanel = document.getElementById('sources-panel') as HTMLDivElement;
 const sourcesList = document.getElementById('sources-list') as HTMLUListElement;
 const labelsContainer = document.getElementById('labels-container') as HTMLDivElement;
+
+const focusButtonsContainer = document.getElementById('focus-buttons-container') as HTMLDivElement;
 const focusExitBtn = document.getElementById('focus-exit-btn') as HTMLButtonElement;
+const watchStreamBtn = document.getElementById('watch-stream-btn') as HTMLButtonElement;
+
+const videoPanelContainer = document.getElementById('video-panel-container') as HTMLDivElement;
+const videoWrapper = document.getElementById('video-wrapper') as HTMLDivElement;
+const closeVideoBtn = document.getElementById('close-video-btn') as HTMLButtonElement;
+const expandVideoBtn = document.getElementById('expand-video-btn') as HTMLButtonElement;
+const glcanvas = document.getElementById('glcanvas') as HTMLCanvasElement;
 
 let searchTerm: string = '';
 
 // UI state
 let isSourcesPanelOpen = false;
+let isVideoPanelOpen = false;
+let isVideoExpanded = false;
 
 let audioListener: THREE.AudioListener;
 let targetMasterVolume = 0.3; // matches new default
@@ -292,10 +303,14 @@ function init() {
     });
   }
 
-  // Escape key for Focus Mode
+  // Escape key for Focus Mode / Video Mode
   window.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape' && focusedNodeId !== null) {
-      exitFocusMode();
+    if (e.key === 'Escape') {
+      if (isVideoPanelOpen) {
+        closeVideoPanel();
+      } else if (focusedNodeId !== null) {
+        exitFocusMode();
+      }
     }
   });
 
@@ -306,6 +321,21 @@ function init() {
   // Focus Exit Button
   focusExitBtn.addEventListener('click', () => {
     exitFocusMode();
+  });
+
+  // Watch Stream logic
+  watchStreamBtn.addEventListener('click', () => {
+    if (focusedNodeId !== null) {
+      openVideoPanel(focusedNodeId.toString());
+    }
+  });
+
+  closeVideoBtn.addEventListener('click', () => {
+    closeVideoPanel();
+  });
+
+  expandVideoBtn.addEventListener('click', () => {
+    toggleVideoExpand();
   });
 
   // Landing Page Enter Button
@@ -772,6 +802,12 @@ function updatePhysics(time: number) {
     node.velocity.multiplyScalar(CONFIG.damping);
     node.position.add(node.velocity);
 
+    // Clamp within bounding sphere so nodes never escape
+    const nodeDist = node.position.length();
+    if (nodeDist > BOUNDS_RADIUS) {
+      node.position.multiplyScalar(BOUNDS_RADIUS / nodeDist);
+    }
+
     // Dynamic scale pulsing
     let audioPulse = 0;
 
@@ -966,9 +1002,22 @@ function updatePhysics(time: number) {
         const rz = ox * sinA + oz * cosA;
 
         // Apply the physical burst multiplier pushing particles outward from center
-        positions[pIdx] = hub.position.x + (rx * multiplier);
-        positions[pIdx + 1] = hub.position.y + (oy * multiplier);
-        positions[pIdx + 2] = hub.position.z + (rz * multiplier);
+        let finalX = hub.position.x + (rx * multiplier);
+        let finalY = hub.position.y + (oy * multiplier);
+        let finalZ = hub.position.z + (rz * multiplier);
+
+        // Clamp within bounding sphere so particles never escape
+        const finalDist = Math.sqrt(finalX * finalX + finalY * finalY + finalZ * finalZ);
+        if (finalDist > BOUNDS_RADIUS) {
+          const clampScale = BOUNDS_RADIUS / finalDist;
+          finalX *= clampScale;
+          finalY *= clampScale;
+          finalZ *= clampScale;
+        }
+
+        positions[pIdx] = finalX;
+        positions[pIdx + 1] = finalY;
+        positions[pIdx + 2] = finalZ;
       }
     }
     hubDustPoints.geometry.attributes.position.needsUpdate = true;
@@ -995,10 +1044,10 @@ function updatePhysics(time: number) {
       let py = baseY + ny * freeDriftAmplitude;
       let pz = baseZ + nz * freeDriftAmplitude;
 
-      // Clamp within bounding sphere (approx radius 340)
+      // Clamp within bounding sphere
       const dist = Math.sqrt(px * px + py * py + pz * pz);
-      if (dist > 340) {
-        const s = 340 / dist;
+      if (dist > BOUNDS_RADIUS) {
+        const s = BOUNDS_RADIUS / dist;
         px *= s; py *= s; pz *= s;
       }
 
@@ -1091,7 +1140,149 @@ function updateProximityLabels() {
 }
 
 
+function openVideoPanel(nodeIdStr: string) {
+  const iframe = ytManager.getIframe(nodeIdStr);
+  if (!iframe) return;
+
+  // Set panel title to the node's name
+  const videoPanelTitle = document.getElementById('video-panel-title');
+  if (videoPanelTitle && focusedNodeId !== null) {
+    const node = graphData.nodes[focusedNodeId];
+    videoPanelTitle.textContent = node.text + ' — Live';
+  }
+
+  // Position the panel near the hub in screen space
+  positionPanelNearHub();
+
+  // Reset expanded state
+  isVideoExpanded = false;
+  videoPanelContainer.classList.remove('expanded');
+
+  // Show the panel and blur the background
+  videoPanelContainer.classList.remove('hidden');
+  glcanvas.classList.add('bg-blurred');
+  focusButtonsContainer.classList.add('hidden');
+  isVideoPanelOpen = true;
+
+  // Overlay the iframe on top of the video-wrapper using CSS positioning
+  // (instead of moving it in the DOM, which would reload the iframe and break playback)
+  syncIframeToWrapper(iframe);
+}
+
+/**
+ * Sync the position/size of the iframe with the video-wrapper element.
+ * The iframe stays in its original DOM position but is visually repositioned.
+ */
+function syncIframeToWrapper(iframe: HTMLIFrameElement) {
+  const rect = videoWrapper.getBoundingClientRect();
+  iframe.style.position = 'fixed';
+  iframe.style.left = rect.left + 'px';
+  iframe.style.top = rect.top + 'px';
+  iframe.style.width = rect.width + 'px';
+  iframe.style.height = rect.height + 'px';
+  iframe.style.zIndex = '51';
+  iframe.style.opacity = '1';
+  iframe.style.pointerEvents = 'auto';
+  iframe.style.borderRadius = '0 0 12px 12px';
+}
+
+/**
+ * Reset the iframe back to its hidden 1x1 state.
+ */
+function resetIframeStyles(iframe: HTMLIFrameElement) {
+  iframe.style.position = '';
+  iframe.style.left = '';
+  iframe.style.top = '';
+  iframe.style.width = '';
+  iframe.style.height = '';
+  iframe.style.zIndex = '';
+  iframe.style.opacity = '';
+  iframe.style.pointerEvents = '';
+  iframe.style.borderRadius = '';
+}
+
+/**
+ * Position the compact video panel to the right of the focused hub in screen space.
+ */
+function positionPanelNearHub() {
+  if (focusedNodeId === null || isVideoExpanded) return;
+
+  const node = graphData.nodes[focusedNodeId];
+  const v = node.position.clone();
+  v.project(camera);
+
+  const halfW = window.innerWidth / 2;
+  const halfH = window.innerHeight / 2;
+  const screenX = (v.x * halfW) + halfW;
+  const screenY = -(v.y * halfH) + halfH;
+
+  // Place panel to the right of the hub, offset by 60px
+  let panelLeft = screenX + 60;
+  let panelTop = screenY - 140; // Center vertically on the hub
+
+  const panelW = 420;
+  const panelH = 280;
+
+  // Clamp so the panel stays on screen
+  if (panelLeft + panelW > window.innerWidth - 20) {
+    panelLeft = screenX - panelW - 60; // Flip to left side
+  }
+  if (panelLeft < 20) panelLeft = 20;
+  if (panelTop < 20) panelTop = 20;
+  if (panelTop + panelH > window.innerHeight - 80) {
+    panelTop = window.innerHeight - panelH - 80;
+  }
+
+  videoPanelContainer.style.left = panelLeft + 'px';
+  videoPanelContainer.style.top = panelTop + 'px';
+}
+
+function toggleVideoExpand() {
+  isVideoExpanded = !isVideoExpanded;
+  if (isVideoExpanded) {
+    videoPanelContainer.classList.add('expanded');
+    expandVideoBtn.textContent = '⊡';
+    expandVideoBtn.title = 'Collapse';
+  } else {
+    videoPanelContainer.classList.remove('expanded');
+    expandVideoBtn.textContent = '⛶';
+    expandVideoBtn.title = 'Expand';
+    positionPanelNearHub();
+  }
+
+  // Re-sync iframe position after expand/collapse transition
+  if (focusedNodeId !== null) {
+    const iframe = ytManager.getIframe(focusedNodeId.toString());
+    if (iframe) {
+      // Wait for CSS transition to finish, then re-sync
+      setTimeout(() => syncIframeToWrapper(iframe), 450);
+    }
+  }
+}
+
+function closeVideoPanel() {
+  // Reset iframe styles back to hidden
+  if (focusedNodeId !== null) {
+    const iframe = ytManager.getIframe(focusedNodeId.toString());
+    if (iframe) {
+      resetIframeStyles(iframe);
+    }
+  }
+  videoPanelContainer.classList.add('hidden');
+  videoPanelContainer.classList.remove('expanded');
+  glcanvas.classList.remove('bg-blurred');
+  focusButtonsContainer.classList.remove('hidden');
+  isVideoPanelOpen = false;
+  isVideoExpanded = false;
+  expandVideoBtn.textContent = '⛶';
+  expandVideoBtn.title = 'Expand';
+}
+
 function exitFocusMode() {
+  if (isVideoPanelOpen) {
+    closeVideoPanel();
+  }
+
   focusedNodeId = null;
 
   // Fade all YouTube streams back to full volume
@@ -1099,8 +1290,8 @@ function exitFocusMode() {
     audioFadeTargets.set(nodeId, 1.0);
   });
 
-  // Hide exit button
-  focusExitBtn.classList.add('hidden');
+  // Hide focus buttons
+  focusButtonsContainer.classList.add('hidden');
 
   // Pull camera back and reset orbit center to scene origin
   targetCameraPos.copy(camera.position).add(camera.position.clone().normalize().multiplyScalar(150));
@@ -1125,8 +1316,8 @@ function flyToNode(nodeId: number) {
       }
     });
 
-    // Show exit button
-    focusExitBtn.classList.remove('hidden');
+    // Show focus buttons ("Watch Stream" and "Exit Focus")
+    focusButtonsContainer.classList.remove('hidden');
   } else {
     // If we click on an Article, clear focus
     exitFocusMode();
@@ -1213,6 +1404,18 @@ function animate(time: number) {
   updatePhysics(time);
   updateInteraction();
   updateProximityLabels();
+
+  // Track the video panel and iframe position each frame
+  if (isVideoPanelOpen && focusedNodeId !== null) {
+    if (!isVideoExpanded) {
+      positionPanelNearHub();
+    }
+    // Sync iframe overlay to the video-wrapper's screen position
+    const iframe = ytManager.getIframe(focusedNodeId.toString());
+    if (iframe) {
+      syncIframeToWrapper(iframe);
+    }
+  }
 
   // --- Per-player spatial volume (YouTube IFrame API) ---
   // Compute volume for each YouTube stream based on camera distance to its node.
