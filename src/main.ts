@@ -4,6 +4,7 @@ import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { createNoise3D } from 'simplex-noise';
 import { generateGraph, NodeType } from './graph';
 import type { GraphData, GraphNode } from './graph';
+import { AudioVisualizer } from './audioVisualizer';
 
 // --- Configuration ---
 const THEMES = {
@@ -104,6 +105,7 @@ const audioFadeTargets: Map<string, number> = new Map();
 const audioAnalysers: Map<string, AnalyserNode> = new Map();
 const audioGainNodes: Map<string, GainNode> = new Map();
 const audioDataArrays: Map<string, Uint8Array<ArrayBuffer>> = new Map();
+const audioVisualizers: Map<string, AudioVisualizer> = new Map();
 
 // --- Woosh Sound State ---
 let wooshGain: GainNode | null = null;
@@ -256,6 +258,9 @@ function init() {
         }
       }
 
+      // Update audio visualizer themes
+      audioVisualizers.forEach(vis => vis.setTheme(currentTheme));
+
       // Trigger a re-render/update for nodes
       updatePhysics(performance.now());
 
@@ -398,6 +403,12 @@ function createNodes() {
     if (node.type === NodeType.StreamHub) {
       setupStreamingAudio(node);
 
+      // Create spherical audio visualizer around this hub
+      const visualizer = new AudioVisualizer(node.size, currentTheme);
+      visualizer.setPosition(node.position);
+      scene.add(visualizer.group);
+      audioVisualizers.set(node.id.toString(), visualizer);
+
       // Create HTML label overlay
       const label = document.createElement('div');
       label.className = 'node-label';
@@ -457,17 +468,17 @@ function setupWooshSound() {
   noiseSource.buffer = noiseBuffer;
   noiseSource.loop = true;
 
-  // Bandpass filter — centered very deep (80 Hz) for a sub-bass space rumble
+  // Bandpass filter — centered very deep (45 Hz) for a sub-bass underwater rumble
   const bandpass = ctx.createBiquadFilter();
   bandpass.type = 'bandpass';
-  bandpass.frequency.value = 80;
-  bandpass.Q.value = 0.8; // Tighter around the low end for that deep space feel
+  bandpass.frequency.value = 45;
+  bandpass.Q.value = 1.5; // Resonant for that deep underwater pressure feel
 
-  // Lowpass filter — cutoff rises with speed, but stays muffled overall
+  // Lowpass filter — cutoff rises with speed, starts extremely muffled
   const lowpass = ctx.createBiquadFilter();
   lowpass.type = 'lowpass';
-  lowpass.frequency.value = 80; // Starts extremely muffled
-  lowpass.Q.value = 0.5;
+  lowpass.frequency.value = 50; // Very deep/muffled at rest
+  lowpass.Q.value = 1.2; // Some resonance for underwater character
 
   // Gain node — volume driven by camera speed
   const gain = ctx.createGain();
@@ -737,6 +748,13 @@ function updatePhysics(time: number) {
       if (analyser && dataArray) {
         analyser.getByteFrequencyData(dataArray);
 
+        // Update the spherical audio visualizer with frequency data
+        const visualizer = audioVisualizers.get(node.id.toString());
+        if (visualizer) {
+          visualizer.update(dataArray, time);
+          visualizer.setPosition(node.position);
+        }
+
         // Sum lower-mid frequencies (bass/vocals)
         let sum = 0;
         const startBin = 2; // skip sub-bass noise
@@ -763,7 +781,14 @@ function updatePhysics(time: number) {
     // Update instance matrix
     dummy.position.copy(node.position);
     let scaleMultiplier = (i === hoveredNodeId) ? 1.5 : 1.0;
-    dummy.scale.setScalar(dynamicSize * scaleMultiplier);
+    // For StreamHubs, size the instanced sphere to match the visualizer radius
+    // so raycast click/hover detection works. It blends in behind the visualizer.
+    if (node.type === NodeType.StreamHub) {
+      const vizRadius = Math.max(2, node.size * 0.8);
+      dummy.scale.setScalar(vizRadius);
+    } else {
+      dummy.scale.setScalar(dynamicSize * scaleMultiplier);
+    }
     dummy.updateMatrix();
     nodeMesh.setMatrixAt(i, dummy.matrix);
 
@@ -1132,22 +1157,22 @@ function animate(time: number) {
   smoothedSpeed += (cameraDelta - smoothedSpeed) * 0.08;
 
   if (wooshGain && wooshLowpass) {
-    // Map speed -> volume: ramp from 0 at rest to ~0.3 at high speed
+    // Map speed -> volume: ramp from 0 at rest to ~0.7 at high speed (louder underwater rush)
     const speedNorm = Math.min(smoothedSpeed / 25, 1.0);
-    const targetWooshVol = speedNorm * speedNorm * 0.3; // quadratic for natural feel
+    const targetWooshVol = speedNorm * speedNorm * 0.7; // quadratic, much louder
     wooshGain.gain.value += (targetWooshVol - wooshGain.gain.value) * 0.1;
 
-    // Sphere proximity muffling: deeper inside = more muffled
+    // Sphere proximity muffling: deeper inside = more muffled (underwater effect)
     const camDist = camera.position.length();
     const sphereRadius = 350;
-    // 1.0 when outside sphere, drops toward 0.2 at dead center
+    // 1.0 when outside sphere, drops toward 0.08 at dead center for heavy underwater muffling
     const proximityFactor = camDist >= sphereRadius
       ? 1.0
-      : 0.2 + 0.8 * (camDist / sphereRadius);
+      : 0.08 + 0.92 * (camDist / sphereRadius);
 
-    // Map speed -> lowpass cutoff: 80 Hz at rest up to 600 Hz at max speed,
-    // then scale down by proximity (muffled inside the sphere)
-    const baseCutoff = 80 + speedNorm * 520;
+    // Map speed -> lowpass cutoff: 50 Hz at rest up to 800 Hz at max speed,
+    // then scale down by proximity (deeper muffling inside = underwater feel)
+    const baseCutoff = 50 + speedNorm * 750;
     const targetCutoff = baseCutoff * proximityFactor;
     wooshLowpass.frequency.value += (targetCutoff - wooshLowpass.frequency.value) * 0.1;
 
