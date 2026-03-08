@@ -18,6 +18,7 @@ export interface GraphNode {
     color: THREE.Color;
     text: string;
     youtubeVideoId?: string;
+    energyLevel?: number; // 0.0 to 1.0 (audio tension level)
 }
 
 export interface Edge {
@@ -33,8 +34,8 @@ export interface GraphData {
 export const BOUNDS_RADIUS = 340; // Must stay within the visual bounding sphere (350)
 
 export const GRAPH_CONFIG = {
-    streamHubCountMin: 18,
-    streamHubCountMax: 18, // Matches the number of real outlets
+    streamHubCountMin: 28,
+    streamHubCountMax: 28, // Matches the number of real outlets
     streamHubDistanceSpread: 320, // Spread further to accommodate more hubs
 
     clusterSizeMin: 50,
@@ -116,7 +117,8 @@ export function generateGraph(): GraphData {
         size: GRAPH_CONFIG.nodeSizes.core,
         connections: [],
         color: getRandomNodeColor(NodeType.Core),
-        text: "Global News Core Assembly"
+        text: "Global News Core Assembly",
+        energyLevel: 0.0
     };
     nodes.push(centralNode);
 
@@ -140,6 +142,16 @@ export function generateGraph(): GraphData {
         { name: "WION", videoId: "vfszY1JYbMc" },
         { name: "GB News", videoId: "QliL4CGc7iY" },
         { name: "Bloomberg Television", videoId: "iEpJwprxDdk" },
+        { name: "Sky News", videoId: "c82yitE5rE4" },
+        { name: "CNA", videoId: "XWq5kBlakcQ" },
+        { name: "TRT World", videoId: "ABfFhWzWs0s" },
+        { name: "Firstpost", videoId: "sP5j2k9f_Gw" },
+        { name: "Republic World", videoId: "55tZ1Mc1bqk" },
+        { name: "Agenda-Free TV", videoId: "ugCJZaFyCVU" },
+        { name: "CNN News18", videoId: "c2JXUHrcRvU" },
+        { name: "The Sun", videoId: "yp_hqUbayWg" },
+        { name: "Reuters Live", videoId: "WqMPQjCiCjE" },
+        { name: "Global News", videoId: "nqiC9PjInCw" },
     ];
 
     const headlinePrefixes = [
@@ -186,7 +198,8 @@ export function generateGraph(): GraphData {
             connections: [],
             color: getRandomNodeColor(NodeType.StreamHub),
             text: outlet.name + suffix,
-            youtubeVideoId: outlet.videoId
+            youtubeVideoId: outlet.videoId,
+            energyLevel: 0.0
         };
         nodes.push(streamHub);
         hubIndices.push(streamHub.id);
@@ -233,7 +246,8 @@ export function generateGraph(): GraphData {
                 size,
                 connections: [],
                 color: getRandomNodeColor(NodeType.Article),
-                text: headline
+                text: headline,
+                energyLevel: 0.0
             };
             nodes.push(article);
             clusterIndices.push(article.id);

@@ -568,12 +568,13 @@ function setupYouTubeAudio(node: GraphNode) {
  * Generate procedural frequency data that looks organic and alive.
  * Uses simplex noise and time-based oscillation to simulate audio-reactive visuals.
  */
-function generateProceduralFrequency(nodeId: string, time: number): Uint8Array {
+function generateProceduralFrequency(nodeId: string, time: number, energyLevel: number = 0.0): Uint8Array {
   const data = proceduralFreqData.get(nodeId);
   if (!data) return new Uint8Array(128);
 
   const seed = parseInt(nodeId) * 137.5; // Unique per node
-  const t = time * 0.001;
+  // Speed up noise progression heavily with tension
+  const t = time * (0.001 + energyLevel * 0.003);
 
   for (let i = 0; i < data.length; i++) {
     // Lower bins (bass) should be more active
@@ -589,10 +590,12 @@ function generateProceduralFrequency(nodeId: string, time: number): Uint8Array {
     const pulse2 = Math.sin(t * 0.7 + seed * 0.02 + i * 0.1) * 0.2 + 0.8;
 
     // Combine everything
-    const value = (n1 * 0.5 + n2 * 0.3 + n3 * 0.2) * freqFactor * pulse * pulse2;
+    const baseValue = (n1 * 0.5 + n2 * 0.3 + n3 * 0.2) * freqFactor * pulse * pulse2;
+    // Boost amplitude directly proportional to energy
+    const energyBoost = baseValue + (baseValue * energyLevel * 1.5);
 
     // Scale to 0-255 range with some randomness for liveliness
-    data[i] = Math.min(255, Math.max(0, Math.floor(value * 200 + Math.random() * 15)));
+    data[i] = Math.min(255, Math.max(0, Math.floor(energyBoost * 200 + Math.random() * 15)));
   }
 
   return data;
@@ -812,13 +815,35 @@ function updatePhysics(time: number) {
     let audioPulse = 0;
 
     if (node.type === NodeType.StreamHub) {
+      // --- Tension Director Logic ---
+      if (ytManager.isPlaying(node.id.toString())) {
+        // Slow simplex noise to determine tension state for this specific node
+        const tensionNoise = noise3D(node.basePosition.x * 0.05, node.basePosition.y * 0.05, time * 0.00005);
+        // Map noise (-1 to 1) to energy (0 to 1) with a skew towards lower energy (mostly calm)
+        const targetEnergy = Math.max(0, Math.min(1, (tensionNoise * 1.5) - 0.2));
+        // Smooth changes
+        node.energyLevel = (node.energyLevel || 0) + (targetEnergy - (node.energyLevel || 0)) * 0.01;
+      } else {
+        // Cool down if not playing
+        node.energyLevel = (node.energyLevel || 0) * 0.95;
+      }
+
+      const eLevel = node.energyLevel || 0;
+
+      // Jitter high-tension nodes slightly in space to simulate physical stress
+      if (eLevel > 0.4) {
+        node.velocity.x += (Math.random() - 0.5) * eLevel * 0.3;
+        node.velocity.y += (Math.random() - 0.5) * eLevel * 0.3;
+        node.velocity.z += (Math.random() - 0.5) * eLevel * 0.3;
+      }
+
       // Generate procedural frequency data for this node
-      const dataArray = generateProceduralFrequency(node.id.toString(), time);
+      const dataArray = generateProceduralFrequency(node.id.toString(), time, eLevel);
 
       // Update the spherical audio visualizer with procedural frequency data
       const visualizer = audioVisualizers.get(node.id.toString());
       if (visualizer) {
-        visualizer.update(dataArray, time);
+        visualizer.update(dataArray, time, eLevel);
         visualizer.setPosition(node.position);
       }
 
@@ -883,9 +908,19 @@ function updatePhysics(time: number) {
 
       // Intensify color as it gets larger (pulse)
       if (audioPulse > 0.1) {
+        const eLevel = node.energyLevel || 0;
         // Map audio pulse (0 to ~2.5) to a lerp factor (0 to 0.8 max)
-        const flashIntensity = Math.min(0.8, audioPulse * 0.4);
-        const targetHigh = currentTheme === 'light' ? new THREE.Color(0x000000) : new THREE.Color(0xffffff);
+        let flashIntensity = Math.min(0.8, audioPulse * 0.4);
+
+        // Boost flash if tension is high, and shift color towards red
+        let targetHigh;
+        if (eLevel > 0.4) {
+          targetHigh = new THREE.Color(0xff4422); // Tension Orange/Red
+          flashIntensity = Math.min(1.0, flashIntensity + eLevel * 0.6);
+        } else {
+          targetHigh = currentTheme === 'light' ? new THREE.Color(0x000000) : new THREE.Color(0xffffff);
+        }
+
         color.lerp(targetHigh, flashIntensity);
       }
     }

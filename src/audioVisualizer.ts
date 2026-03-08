@@ -24,6 +24,11 @@ export class AudioVisualizer {
     private vertexSeeds: Float32Array;
     private vertexBandMap: Uint8Array;
 
+    private baseSolidColor: THREE.Color = new THREE.Color();
+    private baseGlowColor: THREE.Color = new THREE.Color();
+    private intenseSolidColor: THREE.Color = new THREE.Color(0xff4422); // Orange/Red
+    private intenseGlowColor: THREE.Color = new THREE.Color(0xff5533);
+
     constructor(nodeSize: number, theme: 'dark' | 'light' = 'dark') {
         this.group = new THREE.Group();
         this.radius = Math.max(2, nodeSize * 0.8);
@@ -59,9 +64,10 @@ export class AudioVisualizer {
         }
 
         // Solid surface material
-        const solidColor = theme === 'light' ? 0x333333 : 0x33ffaa;
+        const solidHex = theme === 'light' ? 0x333333 : 0x33ffaa;
+        this.baseSolidColor.setHex(solidHex);
         const solidMaterial = new THREE.MeshBasicMaterial({
-            color: solidColor,
+            color: this.baseSolidColor.clone(),
             transparent: true,
             opacity: 0.35,
             depthWrite: false,
@@ -74,8 +80,10 @@ export class AudioVisualizer {
 
         // --- Outer glow halo ---
         const glowGeo = new THREE.SphereGeometry(this.radius * 1.15, 32, 24);
+        const glowHex = theme === 'light' ? 0x555555 : 0x66ffdd;
+        this.baseGlowColor.setHex(glowHex);
         const glowMat = new THREE.MeshBasicMaterial({
-            color: theme === 'light' ? 0x555555 : 0x66ffdd,
+            color: this.baseGlowColor.clone(),
             transparent: true,
             opacity: 0.08,
             depthWrite: false,
@@ -88,7 +96,7 @@ export class AudioVisualizer {
         this.smoothedBands = new Float32Array(NUM_FREQUENCY_BANDS).fill(0);
     }
 
-    update(dataArray: Uint8Array, time: number): void {
+    update(dataArray: Uint8Array, time: number, energyLevel: number = 0.0): void {
         const binCount = dataArray.length;
 
         // --- Aggregate into bands ---
@@ -132,11 +140,12 @@ export class AudioVisualizer {
 
             // Smooth wobble
             const seed = this.vertexSeeds[i];
-            const jitter = Math.sin(timeScale * 1.8 + seed) * 0.12 +
-                Math.sin(timeScale * 3.2 + seed * 1.7) * 0.08 +
-                Math.cos(timeScale * 2.1 + seed * 0.9) * 0.06;
+            const speed = timeScale * (1.0 + energyLevel * 2.0);
+            const jitter = Math.sin(speed * 1.8 + seed) * 0.12 +
+                Math.sin(speed * 3.2 + seed * 1.7) * 0.08 +
+                Math.cos(speed * 2.1 + seed * 0.9) * 0.06;
 
-            const displacement = amp * this.radius * 1.2 + jitter * this.radius * 0.12;
+            const displacement = amp * this.radius * (1.2 + energyLevel * 0.5) + jitter * this.radius * (0.12 + energyLevel * 0.1);
 
             posArray[i3] = bx + nx * displacement;
             posArray[i3 + 1] = by + ny * displacement;
@@ -155,13 +164,15 @@ export class AudioVisualizer {
 
         const solidMat = this.solidMesh.material as THREE.MeshBasicMaterial;
         solidMat.opacity = 0.35 + avgEnergy * 0.5;
+        solidMat.color.copy(this.baseSolidColor).lerp(this.intenseSolidColor, energyLevel);
 
         const glowMat = this.glowMesh.material as THREE.MeshBasicMaterial;
         glowMat.opacity = 0.05 + avgEnergy * 0.2;
-        this.glowMesh.scale.setScalar(1.15 + avgEnergy * 0.3);
+        glowMat.color.copy(this.baseGlowColor).lerp(this.intenseGlowColor, energyLevel);
+        this.glowMesh.scale.setScalar(1.15 + avgEnergy * 0.3 + energyLevel * 0.15);
 
-        this.group.rotation.y += 0.003;
-        this.group.rotation.x += 0.002;
+        this.group.rotation.y += 0.003 + (energyLevel * 0.015);
+        this.group.rotation.x += 0.002 + (energyLevel * 0.01);
     }
 
     setPosition(pos: THREE.Vector3): void {
@@ -169,12 +180,17 @@ export class AudioVisualizer {
     }
 
     setTheme(theme: 'dark' | 'light'): void {
+        const solidHex = theme === 'light' ? 0x333333 : 0x33ffaa;
+        this.baseSolidColor.setHex(solidHex);
         const solidMat = this.solidMesh.material as THREE.MeshBasicMaterial;
-        solidMat.color.setHex(theme === 'light' ? 0x333333 : 0x33ffaa);
+        // Don't overwrite the current color entirely, just base, so lerp works
+        solidMat.color.copy(this.baseSolidColor);
         solidMat.blending = theme === 'light' ? THREE.NormalBlending : THREE.AdditiveBlending;
 
+        const glowHex = theme === 'light' ? 0x555555 : 0x66ffdd;
+        this.baseGlowColor.setHex(glowHex);
         const glowMat = this.glowMesh.material as THREE.MeshBasicMaterial;
-        glowMat.color.setHex(theme === 'light' ? 0x555555 : 0x66ffdd);
+        glowMat.color.copy(this.baseGlowColor);
         glowMat.blending = theme === 'light' ? THREE.NormalBlending : THREE.AdditiveBlending;
     }
 }
