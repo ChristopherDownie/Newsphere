@@ -152,12 +152,10 @@ export class YouTubePlayerManager {
         this.players.set(source.nodeId.toString(), managed);
 
         // Create the YT.Player with the video ID directly
-        // Use youtube-nocookie.com host to bypass Error 150 embedding restrictions
         managed.player = new YT.Player(containerId, {
             height: '1',
             width: '1',
             videoId: source.videoId,
-            host: 'https://www.youtube-nocookie.com',
             playerVars: {
                 autoplay: 0,
                 controls: 0,
@@ -166,6 +164,7 @@ export class YouTubePlayerManager {
                 mute: 1, // Start muted to allow autoplay
                 playsinline: 1,
                 enablejsapi: 1,
+                origin: window.location.origin,
             },
             events: {
                 onReady: (_event) => {

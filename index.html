@@ -13,7 +13,7 @@
     <canvas id="landing-canvas"></canvas>
     <div class="landing-content">
       <h1>Newsphere</h1>
-      <p>A procedural spatial audio experience</p>
+      <p>Immersive live news exploration</p>
       <button id="enter-btn">Enter</button>
     </div>
   </div>
@@ -125,6 +125,7 @@
       <div class="deep-dive-header">
         <div class="deep-dive-title-row">
           <span class="deep-dive-live-badge">LIVE</span>
+          <span id="deep-dive-topic-badge" class="topic-badge hidden"></span>
           <h3 id="deep-dive-title">Stream</h3>
         </div>
         <button id="deep-dive-close-btn">✕</button>
@@ -132,6 +133,12 @@
       <div class="deep-dive-section">
         <h4 class="deep-dive-section-title">Related Headlines</h4>
         <ul id="deep-dive-articles"></ul>
+      </div>
+      <div class="deep-dive-section transcript-section">
+        <h4 class="deep-dive-section-title">Live Transcript</h4>
+        <div id="transcript-container">
+          <p id="transcript-placeholder" class="transcript-placeholder">Listening for audio…</p>
+        </div>
       </div>
     </div>
 

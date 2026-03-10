@@ -1230,6 +1230,28 @@ body.light-theme .deep-dive-header {
   }
 }
 
+/* --- Topic Badge --- */
+.topic-badge {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 1px;
+  padding: 3px 10px;
+  border-radius: 10px;
+  flex-shrink: 0;
+  transition: background-color 0.6s ease, opacity 0.3s ease;
+  text-transform: uppercase;
+  color: #fff;
+  opacity: 1;
+}
+
+.topic-badge.hidden {
+  display: none;
+}
+
+body.light-theme .topic-badge {
+  color: #fff;
+}
+
 #deep-dive-title {
   margin: 0;
   font-size: 0.95rem;
@@ -1339,6 +1361,86 @@ body.light-theme #deep-dive-articles li:hover {
 .deep-dive-section::-webkit-scrollbar-thumb {
   background: rgba(68, 136, 255, 0.3);
   border-radius: 2px;
+}
+
+/* --- Live Transcript Section --- */
+.transcript-section {
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+  flex: 1;
+  min-height: 120px;
+  max-height: 220px;
+}
+
+body.light-theme .transcript-section {
+  border-top-color: rgba(0, 0, 0, 0.06);
+}
+
+#transcript-container {
+  overflow-y: auto;
+  max-height: 180px;
+  scroll-behavior: smooth;
+}
+
+#transcript-container::-webkit-scrollbar {
+  width: 4px;
+}
+
+#transcript-container::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+#transcript-container::-webkit-scrollbar-thumb {
+  background: rgba(68, 136, 255, 0.3);
+  border-radius: 2px;
+}
+
+.transcript-placeholder {
+  color: rgba(136, 170, 221, 0.4);
+  font-size: 0.78rem;
+  font-style: italic;
+  font-weight: 300;
+  margin: 0;
+  padding: 8px 0;
+}
+
+body.light-theme .transcript-placeholder {
+  color: rgba(100, 100, 120, 0.4);
+}
+
+.transcript-line {
+  font-size: 0.8rem;
+  color: rgba(200, 220, 255, 0.8);
+  font-weight: 300;
+  line-height: 1.5;
+  margin: 0 0 6px;
+  padding: 4px 8px;
+  border-radius: 6px;
+  animation: transcriptFadeIn 0.3s ease-out;
+}
+
+body.light-theme .transcript-line {
+  color: #444;
+}
+
+.transcript-line.interim {
+  color: rgba(136, 170, 221, 0.5);
+  font-style: italic;
+}
+
+body.light-theme .transcript-line.interim {
+  color: rgba(100, 100, 120, 0.5);
+}
+
+@keyframes transcriptFadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 @media (max-width: 768px) {

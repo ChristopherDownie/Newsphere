@@ -19,6 +19,7 @@ export interface GraphNode {
     text: string;
     youtubeVideoId?: string;
     energyLevel?: number; // 0.0 to 1.0 (audio tension level)
+    currentTopic?: string; // Auto-detected topic from transcript
 }
 
 export interface Edge {
@@ -34,8 +35,8 @@ export interface GraphData {
 export const BOUNDS_RADIUS = 340; // Must stay within the visual bounding sphere (350)
 
 export const GRAPH_CONFIG = {
-    streamHubCountMin: 28,
-    streamHubCountMax: 28, // Matches the number of real outlets
+    streamHubCountMin: 48,
+    streamHubCountMax: 48, // Matches the number of real outlets
     streamHubDistanceSpread: 320, // Spread further to accommodate more hubs
 
     clusterSizeMin: 50,
@@ -152,6 +153,27 @@ export function generateGraph(): GraphData {
         { name: "The Sun", videoId: "yp_hqUbayWg" },
         { name: "Reuters Live", videoId: "WqMPQjCiCjE" },
         { name: "Global News", videoId: "nqiC9PjInCw" },
+        // --- 20 new streams (verified live) ---
+        { name: "CNBC", videoId: "9NyxcX3rhQs" },
+        { name: "Arirang TV", videoId: "CJVBX7KI5nU" },
+        { name: "Times of India", videoId: "0_lajEkbnaY" },
+        { name: "Zee News", videoId: "n0tqxytGhFo" },
+        { name: "Geo News", videoId: "SlualyLcNvs" },
+        { name: "ARY News", videoId: "vYTfRrA0rBw" },
+        { name: "CNN Brasil", videoId: "QZxSeJSL3Js" },
+        { name: "CBC News", videoId: "v53zo5pwAHA" },
+        { name: "News18 Urdu", videoId: "Ezy3PO7vFHQ" },
+        { name: "Aaj Tak", videoId: "7wTKQZr0Svc" },
+        { name: "TV9 Bharatvarsh", videoId: "e-X_lB9UHZI" },
+        { name: "Republic Bharat", videoId: "x6Ue6Jsx7po" },
+        { name: "News7 Tamil", videoId: "X_p2Z8NAq5U" },
+        { name: "PTV News", videoId: "pBzPyXKHsYw" },
+        { name: "News18 India", videoId: "dK7_mtfnwJ0" },
+        { name: "DD News", videoId: "s0YkhC_Kv1g" },
+        { name: "TV9 Telugu", videoId: "6_CmOlboBLU" },
+        { name: "ABP News", videoId: "JVpDg9tzEbg" },
+        { name: "Republic TV", videoId: "Skg6dCsDivQ" },
+        { name: "SAMAA TV", videoId: "PAEaoSSlmDo" },
     ];
 
     const headlinePrefixes = [

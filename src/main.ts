@@ -7,6 +7,7 @@ import type { GraphData, GraphNode } from './graph';
 import { AudioVisualizer } from './audioVisualizer';
 import { initLandingParticles, stopLandingParticles } from './landingParticles';
 import { YouTubePlayerManager } from './youtubePlayer';
+import { TopicDetector } from './topicDetector';
 
 // --- Configuration ---
 const THEMES = {
@@ -100,6 +101,19 @@ const deepDiveTitle = document.getElementById('deep-dive-title') as HTMLHeadingE
 const deepDiveArticles = document.getElementById('deep-dive-articles') as HTMLUListElement;
 const deepDiveCloseBtn = document.getElementById('deep-dive-close-btn') as HTMLButtonElement;
 
+// Transcript elements
+const transcriptContainer = document.getElementById('transcript-container') as HTMLDivElement;
+const transcriptPlaceholder = document.getElementById('transcript-placeholder') as HTMLParagraphElement;
+
+// Speech Recognition state
+const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+let recognition: any = null;
+let isTranscribing = false;
+
+// Topic detection
+const topicBadge = document.getElementById('deep-dive-topic-badge') as HTMLSpanElement;
+const topicDetector = new TopicDetector();
+
 let searchTerm: string = '';
 
 // UI state
@@ -107,7 +121,7 @@ let isSourcesPanelOpen = false;
 let isVideoPanelOpen = false;
 let isVideoExpanded = false;
 let isDeepDiveOpen = false;
-let pendingDeepDive = false; // Flag to auto-trigger deep dive after fly-in
+
 
 let audioListener: THREE.AudioListener;
 let targetMasterVolume = 0.3; // matches new default
@@ -138,6 +152,10 @@ let wooshGain: GainNode | null = null;
 let wooshLowpass: BiquadFilterNode | null = null;
 let previousCameraPos = new THREE.Vector3();
 let smoothedSpeed = 0;
+
+// --- Ambient Hum State ---
+let ambientHumGain: GainNode | null = null;
+let ambientHumInitialized = false;
 
 // --- Spatial Audio Cue Layer ---
 // Per-stream oscillator + StereoPanner + Gain for directional presence cues
@@ -357,7 +375,9 @@ function init() {
   // Watch Stream logic
   watchStreamBtn.addEventListener('click', () => {
     if (focusedNodeId !== null) {
+      openDeepDive(focusedNodeId);
       openVideoPanel(focusedNodeId.toString());
+      startTranscription();
     }
   });
 
@@ -429,6 +449,9 @@ function init() {
         audioListener.context.resume();
       }
 
+      // Start the ambient hum immediately (audible during tutorial)
+      setupAmbientHum();
+
       // 1. Hide landing page
       landingPage.classList.add('hidden');
 
@@ -447,7 +470,17 @@ function init() {
           isAudioActive = true;
           ytManager.playAll();
 
-          // 5. Remove tutorial from DOM after fade completes
+          // 5. Diagnostic: check YouTube player status after 10 seconds
+          setTimeout(() => {
+            const nodeIds = ytManager.getNodeIds();
+            let playingCount = 0;
+            nodeIds.forEach(id => {
+              if (ytManager.isPlaying(id)) playingCount++;
+            });
+            console.log(`[YT Diagnostic] ${playingCount}/${nodeIds.length} streams are playing after 10s`);
+          }, 10000);
+
+          // 6. Remove tutorial from DOM after fade completes
           setTimeout(() => {
             tutorialOverlay.style.display = 'none';
           }, 1500);
@@ -581,6 +614,75 @@ function setupWooshSound() {
   wooshGain = gain;
   wooshLowpass = lowpass;
   previousCameraPos.copy(camera.position);
+}
+
+/**
+ * Create a rich ambient hum drone from layered sine oscillators.
+ * Plays from the moment the user clicks Enter and fades based on proximity to the sphere.
+ */
+function setupAmbientHum() {
+  if (ambientHumInitialized) return;
+  const ctx = audioListener.context;
+  if (ctx.state !== 'running') return;
+
+  // Master gain for the entire hum layer
+  const masterGain = ctx.createGain();
+  masterGain.gain.value = 0.35; // Starting volume
+
+  // Bandpass to shape the overall drone timbre
+  const shaper = ctx.createBiquadFilter();
+  shaper.type = 'lowpass';
+  shaper.frequency.value = 220;
+  shaper.Q.value = 0.8;
+
+  // Layer 1: Deep fundamental (55 Hz - A1)
+  const osc1 = ctx.createOscillator();
+  osc1.type = 'sine';
+  osc1.frequency.value = 55;
+  const gain1 = ctx.createGain();
+  gain1.gain.value = 0.5;
+  osc1.connect(gain1);
+  gain1.connect(shaper);
+
+  // Layer 2: Fifth above (82 Hz - roughly E2)
+  const osc2 = ctx.createOscillator();
+  osc2.type = 'sine';
+  osc2.frequency.value = 82;
+  const gain2 = ctx.createGain();
+  gain2.gain.value = 0.3;
+  osc2.connect(gain2);
+  gain2.connect(shaper);
+
+  // Layer 3: Octave above (110 Hz - A2)
+  const osc3 = ctx.createOscillator();
+  osc3.type = 'sine';
+  osc3.frequency.value = 110;
+  const gain3 = ctx.createGain();
+  gain3.gain.value = 0.15;
+  osc3.connect(gain3);
+  gain3.connect(shaper);
+
+  // Layer 4: Sub-bass rumble with slight detuning for warmth
+  const osc4 = ctx.createOscillator();
+  osc4.type = 'sine';
+  osc4.frequency.value = 55.3; // Slight detune for beating/warmth
+  const gain4 = ctx.createGain();
+  gain4.gain.value = 0.25;
+  osc4.connect(gain4);
+  gain4.connect(shaper);
+
+  // Pipeline: shaper -> masterGain -> destination
+  shaper.connect(masterGain);
+  masterGain.connect(audioListener.getInput());
+
+  osc1.start();
+  osc2.start();
+  osc3.start();
+  osc4.start();
+
+  ambientHumGain = masterGain;
+  ambientHumInitialized = true;
+  console.log('[Audio] Ambient hum initialized');
 }
 
 function setupYouTubeAudio(node: GraphNode) {
@@ -1796,9 +1898,153 @@ function openDeepDive(nodeId: number) {
 }
 
 /**
+ * Start live transcription using the Web Speech API.
+ * Listens via the microphone and transcribes audio playing through speakers.
+ */
+function startTranscription() {
+  if (!SpeechRecognition) {
+    transcriptPlaceholder.textContent = 'Speech recognition not supported in this browser.';
+    return;
+  }
+
+  stopTranscription(); // Clean up any previous session
+  topicDetector.reset();
+
+  recognition = new SpeechRecognition();
+  recognition.continuous = true;
+  recognition.interimResults = true;
+  recognition.lang = 'en-US';
+
+  // Clear old transcript
+  transcriptContainer.innerHTML = '';
+  let interimEl: HTMLParagraphElement | null = null;
+
+  recognition.onresult = (event: any) => {
+    let interimText = '';
+
+    for (let i = event.resultIndex; i < event.results.length; i++) {
+      const transcript = event.results[i][0].transcript;
+
+      if (event.results[i].isFinal) {
+        // Remove interim element if present
+        if (interimEl) {
+          interimEl.remove();
+          interimEl = null;
+        }
+
+        // Add final line
+        const p = document.createElement('p');
+        p.className = 'transcript-line';
+        const trimmed = transcript.trim();
+        p.textContent = trimmed;
+        transcriptContainer.appendChild(p);
+
+        // Feed to topic detector
+        topicDetector.feedText(trimmed);
+        updateTopicBadge();
+
+        // Auto-scroll to bottom
+        transcriptContainer.scrollTop = transcriptContainer.scrollHeight;
+      } else {
+        interimText += transcript;
+      }
+    }
+
+    // Show interim text
+    if (interimText) {
+      if (!interimEl) {
+        interimEl = document.createElement('p');
+        interimEl.className = 'transcript-line interim';
+        transcriptContainer.appendChild(interimEl);
+      }
+      interimEl.textContent = interimText;
+      transcriptContainer.scrollTop = transcriptContainer.scrollHeight;
+    }
+  };
+
+  recognition.onerror = (event: any) => {
+    console.warn('Speech recognition error:', event.error);
+    if (event.error === 'not-allowed') {
+      transcriptPlaceholder.textContent = 'Microphone access denied.';
+      transcriptContainer.innerHTML = '';
+      transcriptContainer.appendChild(transcriptPlaceholder);
+    }
+  };
+
+  // Auto-restart on end (speech recognition can stop after silence)
+  recognition.onend = () => {
+    if (isTranscribing) {
+      try {
+        recognition.start();
+      } catch (_) { /* already started */ }
+    }
+  };
+
+  try {
+    recognition.start();
+    isTranscribing = true;
+  } catch (e) {
+    console.warn('Failed to start speech recognition:', e);
+  }
+}
+
+/**
+ * Stop live transcription and clear the transcript container.
+ */
+function stopTranscription() {
+  isTranscribing = false;
+  if (recognition) {
+    try {
+      recognition.onend = null; // Prevent auto-restart
+      recognition.stop();
+    } catch (_) { /* not started */ }
+    recognition = null;
+  }
+
+  // Reset to placeholder
+  if (transcriptContainer) {
+    transcriptContainer.innerHTML = '';
+    transcriptContainer.appendChild(transcriptPlaceholder);
+    transcriptPlaceholder.textContent = 'Listening for audio…';
+  }
+
+  // Hide topic badge
+  topicBadge.classList.add('hidden');
+}
+
+/**
+ * Update the topic badge and hub node color based on detected topic.
+ */
+function updateTopicBadge() {
+  const result = topicDetector.getTopTopic();
+
+  if (!result) {
+    topicBadge.classList.add('hidden');
+    return;
+  }
+
+  // Update badge
+  topicBadge.textContent = `${result.emoji} ${result.name}`;
+  topicBadge.style.backgroundColor = result.color;
+  topicBadge.classList.remove('hidden');
+
+  // Update the hub node's 3D color
+  if (focusedNodeId !== null) {
+    const node = graphData.nodes[focusedNodeId];
+    if (node && node.type === NodeType.StreamHub) {
+      node.currentTopic = result.name;
+      node.color.setHex(result.threeColor);
+      nodeMesh.setColorAt(focusedNodeId, node.color);
+      if (nodeMesh.instanceColor) nodeMesh.instanceColor.needsUpdate = true;
+    }
+  }
+}
+
+/**
  * Close the deep dive detail panel.
  */
 function closeDeepDive() {
+  stopTranscription();
   deepDivePanel.classList.add('hidden');
   isDeepDiveOpen = false;
   glcanvas.classList.remove('constellation-dimmed');
@@ -1813,7 +2059,7 @@ function exitFocusMode() {
   closeDeepDive();
 
   focusedNodeId = null;
-  pendingDeepDive = false;
+
 
   // Fade all YouTube streams back to full volume
   ytManager.getNodeIds().forEach(nodeId => {
@@ -1857,8 +2103,7 @@ function flyToNode(nodeId: number) {
     // Show focus buttons ("Watch Stream" and "Exit Focus")
     focusButtonsContainer.classList.remove('hidden');
 
-    // Set flag to auto-trigger deep dive when camera arrives
-    pendingDeepDive = true;
+
   } else {
     // If we click on an Article, clear focus
     exitFocusMode();
@@ -1942,6 +2187,35 @@ function animate(time: number) {
     if (isMuted || !isAudioActive) {
       wooshGain.gain.value = 0;
     }
+  }
+
+  // --- Ambient Hum: crossfade based on camera distance to sphere ---
+  if (ambientHumGain) {
+    const camDist = camera.position.length();
+    let humTarget = 0.0;
+
+    if (isMuted) {
+      humTarget = 0.0;
+    } else if (!isAudioActive) {
+      // Before entering the 3D world, play hum at full volume
+      humTarget = 0.35;
+    } else {
+      // Inside the 3D world: fade hum based on proximity to sphere center
+      // Full hum when far (>500), silent when deep inside (<150)
+      if (camDist > 500) {
+        humTarget = 0.35;
+      } else if (camDist < 150) {
+        humTarget = 0.0;
+      } else {
+        // Smoothstep crossfade from 0.35 to 0.0 as distance goes from 500 to 150
+        let t = (camDist - 150) / 350; // 0 at 150, 1 at 500
+        t = t * t * (3 - 2 * t); // smoothstep
+        humTarget = 0.35 * t;
+      }
+    }
+
+    // Smooth the volume transition (~1.5s ramp at 60fps)
+    ambientHumGain.gain.value += (humTarget - ambientHumGain.gain.value) * 0.03;
   }
 
   updatePhysics(time);
@@ -2083,11 +2357,7 @@ function animate(time: number) {
       controls.target.distanceToSquared(targetControlsCenter) < 25.0) {
       isFlying = false;
 
-      // Auto-trigger deep dive when camera arrives at a StreamHub
-      if (pendingDeepDive && focusedNodeId !== null) {
-        pendingDeepDive = false;
-        openDeepDive(focusedNodeId);
-      }
+
     }
 
     // Restore autoRotate if it was globally enabled
